@@ -1,4 +1,5 @@
-#include "Keyboard.h"
+#include "Arduino.h"
+#include "HID-Project.h"
 #include "KeyboardConfig.h"
 #include "KeyboardInterface.hpp"
 
@@ -19,11 +20,11 @@ class Numpad : public KeyboardInterface {
                 {KEY_F24, KEY_F24, KEY_F24, KEY_F24},
             }, { // on
                 {KEY_F13, KEY_F14, KEY_F15, KEY_F16},
-                {KEY_NUM_LOCK, KEY_KP_SLASH, KEY_KP_ASTERISK, KEY_KP_MINUS},
-                {KEY_KP_7, KEY_KP_8, KEY_KP_9, KEY_KP_PLUS},
-                {KEY_KP_4, KEY_KP_5, KEY_KP_6, KEY_KP_PLUS},
-                {KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_ENTER},
-                {KEY_KP_0, KEY_KP_0, KEY_KP_DOT, KEY_KP_ENTER},
+                {KEY_NUM_LOCK, HID_KEYPAD_DIVIDE, HID_KEYPAD_MULTIPLY, HID_KEYPAD_SUBTRACT},
+                {HID_KEYPAD_7_AND_HOME, HID_KEYPAD_8_AND_UP_ARROW, HID_KEYPAD_9_AND_PAGE_UP, HID_KEYPAD_ADD},
+                {HID_KEYPAD_4_AND_LEFT_ARROW, HID_KEYPAD_5, HID_KEYPAD_6_AND_RIGHT_ARROW, HID_KEYPAD_ADD},
+                {HID_KEYPAD_1_AND_END, HID_KEYPAD_2_AND_DOWN_ARROW, HID_KEYPAD_3_AND_PAGE_DOWN, HID_KEYPAD_ENTER},
+                {HID_KEYPAD_0_AND_INSERT, HID_KEYPAD_0_AND_INSERT, HID_KEYPAD_DECIMAL, HID_KEYPAD_ENTER},
             }
         };
 

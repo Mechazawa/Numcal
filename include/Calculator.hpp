@@ -32,14 +32,17 @@ class Calculator : public KeyboardInterface {
         bool clearNext = false;
 
         char operation = '+';      
+        double memory[4];
         
         void doOperation(char op);
         void doNumeric(char input);
         void doMath(char op);
     public:
         void onPress(char row, char column) override;
+        void onLongPress(char row, char column) override;
 
         double getInput() const;
+        void setInput(double value);
         double getResult() const;
 
         // ECalculatorMode getMode() const;
