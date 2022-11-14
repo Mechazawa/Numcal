@@ -1,7 +1,8 @@
 #include "Numpad.hpp"
 
 unsigned char Numpad::getChar(unsigned char row, unsigned char column) const {
-    return this->mapping[this->numlock][row][column];
+    return this->mapping[1][row][column];
+    //return this->mapping[this->numlock][row][column];
 }
 
 void Numpad::onPress(char row, char column) {

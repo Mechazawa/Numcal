@@ -16,11 +16,11 @@ bool tick = false;
 
 unsigned long states[COLS][ROWS];
 
-unsigned short longPressMs = 2000;
+unsigned short longPressMs = 1500;
 
 void setup()
 {
-  Keyboard.begin(); 
+  Keyboard.begin();
 
   for (uint8_t pin : rowPins) {
     pinMode(pin, INPUT_PULLUP);

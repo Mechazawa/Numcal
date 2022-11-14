@@ -1,4 +1,6 @@
 #include "Calculator.hpp"
+#include "Arduino.h"
+#include "HID-Project.h"
 #include <math.h>
 
 // ECalculatorMode Calculator::getMode() const {
@@ -34,8 +36,16 @@ void Calculator::onPress(char row, char column) {
 void Calculator::onLongPress(char row, char column) {
     char input = this->getChar(row, column);
 
-    if (input >= 'a' && input <= 'd') {
-        this->memory[input - 'a'] = this->getResult();
+    switch(input) {
+        case 'a':
+        case 'b':
+        case 'c':
+        case 'd':
+            this->memory[input - 'a'] = this->getResult();
+            break;
+        case '\n':
+            Keyboard.print(this->getResult(), this->inputOffset);
+            break;
     }
 }
 
