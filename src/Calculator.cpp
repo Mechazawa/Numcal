@@ -31,6 +31,8 @@ void Calculator::onPress(char row, char column) {
     } else {
         this->doOperation(input);
     }
+
+    this->drawNext = true;
 }
 
 void Calculator::onLongPress(char row, char column) {
@@ -140,4 +142,22 @@ void Calculator::doMath(const char op) {
     }
 
     this->clearNext = true;
+}
+
+void Calculator::draw(U8G2* u8g2) {
+    if (!this->drawNext) return;
+
+    this->drawNext = false;
+
+    u8g2->clearBuffer();
+    
+    u8g2->setFont(u8g2_font_ncenB08_tr);	// choose a suitable font
+    
+    char buffer[255];
+    dtostrf(this->getInput(), 10, 5, buffer);
+    u8g2->drawStr(0, 10, buffer);
+    dtostrf(this->getResult(), 10, 5, buffer);
+    u8g2->drawStr(0, 30, buffer);
+
+    u8g2->sendBuffer();
 }

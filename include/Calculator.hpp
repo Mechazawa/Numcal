@@ -40,6 +40,7 @@ class Calculator : public KeyboardInterface {
     public:
         void onPress(char row, char column) override;
         void onLongPress(char row, char column) override;
+        void draw(U8G2* u8g2) override;
 
         double getInput() const;
         void setInput(double value);

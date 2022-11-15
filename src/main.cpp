@@ -4,6 +4,22 @@
 #include "Numpad.hpp"
 #include "Calculator.hpp"
 
+#include <U8g2lib.h>
+#ifdef U8X8_HAVE_HW_SPI
+#include <SPI.h>
+#endif
+#ifdef U8X8_HAVE_HW_I2C
+#include <Wire.h>
+#endif
+
+// unpaged
+U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 16, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
+// U8G2_SSD1305_128X32_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
+
+// paged
+// U8G2_SSD1305_128X32_ADAFRUIT_1_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 16, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
+// U8G2_SSD1305_128X32_ADAFRUIT_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
+
 #define DEBUG
 
 Numpad numpad;
@@ -24,6 +40,10 @@ void setup()
 {
   NKROKeyboard.begin();
   Serial.begin(9600);
+  u8g2.begin();
+  
+  u8g2.clearBuffer();	
+  u8g2.sendBuffer();	
 
   for (uint8_t pin : colPins) {
     pinMode(pin, INPUT_PULLUP);
@@ -35,6 +55,8 @@ void setup()
   }
 
   Serial.println("Ready");
+
+  currentMode->forceDraw(&u8g2);
 }
 
 void loop()
@@ -79,6 +101,8 @@ void loop()
           } else {
             currentMode = &numpad;
           }
+
+          currentMode->forceDraw(&u8g2);
         } else {
           currentMode->onLongPress(col, row);
         }
@@ -87,4 +111,6 @@ void loop()
 
     digitalWrite(rowPins[row], HIGH);
   }
+
+  currentMode->draw(&u8g2);
 }
