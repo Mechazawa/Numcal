@@ -11,9 +11,6 @@ class KeyboardInterface {
         virtual void onRelease(char row, char column) {};
         virtual void onLongPress(char row, char column) {};
         virtual void draw(U8G2* u8g2) {};
-
-        void forceDraw(U8G2* u8g2) {
-            this->drawNext = true;
-            this->draw(u8g2);
-        }
+        virtual void onShow() {};
+        virtual void onHide() {};
 };

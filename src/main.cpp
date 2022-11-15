@@ -56,7 +56,7 @@ void setup()
 
   Serial.println("Ready");
 
-  currentMode->forceDraw(&u8g2);
+  currentMode->onShow();
 }
 
 void loop()
@@ -87,11 +87,7 @@ void loop()
       } else if (now && (time - prev) >= longPressMs) {
         states[col][row] = time; // reset
 
-        #ifdef DEBUG
-        Serial.print("["); Serial.print(row, DEC); Serial.print("]");
-        Serial.print("["); Serial.print(col, DEC); Serial.print("]");
-        Serial.println("LONG");
-        #endif
+        currentMode->onHide();
 
         // bad way of doing this
         // detect numlock and swich modes
@@ -102,7 +98,7 @@ void loop()
             currentMode = &numpad;
           }
 
-          currentMode->forceDraw(&u8g2);
+          currentMode->onShow();
         } else {
           currentMode->onLongPress(col, row);
         }

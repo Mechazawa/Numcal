@@ -161,3 +161,7 @@ void Calculator::draw(U8G2* u8g2) {
 
     u8g2->sendBuffer();
 }
+
+void Calculator::onShow() {
+    this->drawNext = true;
+}

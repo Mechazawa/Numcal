@@ -38,3 +38,7 @@ void Numpad::draw(U8G2* u8g2) {
     }
     u8g2->sendBuffer();
 }
+
+void Numpad::onShow() {
+    this->drawNext = true;
+}

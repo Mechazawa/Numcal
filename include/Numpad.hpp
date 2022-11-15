@@ -34,4 +34,5 @@ class Numpad : public KeyboardInterface {
         void onPress(char row, char column) override;
         void onRelease(char row, char column) override;
         void draw(U8G2* u8g2) override;
+        void onShow() override;
 };
