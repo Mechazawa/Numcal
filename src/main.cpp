@@ -4,46 +4,57 @@
 #include "Numpad.hpp"
 #include "Calculator.hpp"
 
+#define DEBUG
+
 Numpad numpad;
 Calculator calculator;
 
 KeyboardInterface* currentMode = &numpad;
 
-const uint8_t colPins[] = {A0, A1, A2, A3};
-const uint8_t rowPins[] = {9, 8, 7, 6, 5, 4};
+const uint8_t colPins[COLS] = {A3, A2, A1, A0};
+const uint8_t rowPins[ROWS] = {9, 8, 7, 6, 5, 4};
 
 bool tick = false;
 
 unsigned long states[COLS][ROWS];
 
-unsigned short longPressMs = 1500;
+unsigned short longPressMs = 1000;
 
 void setup()
 {
-  Keyboard.begin();
+  NKROKeyboard.begin();
+  Serial.begin(9600);
 
-  for (uint8_t pin : rowPins) {
+  for (uint8_t pin : colPins) {
     pinMode(pin, INPUT_PULLUP);
   }
   
-  for (uint8_t pin : colPins) {
+  for (uint8_t pin : rowPins) {
     pinMode(pin, OUTPUT);
     digitalWrite(pin, HIGH);
   }
+
+  Serial.println("Ready");
 }
 
 void loop()
 {
   const unsigned long time = millis();
 
-  for (uint8_t col = 0; col < COLS; col++) {
-    digitalWrite(colPins[col], LOW);
+  for (uint8_t row = 0; row < ROWS; row++) {
+    digitalWrite(rowPins[row], LOW);
 
-    for (uint8_t row = 0; row < ROWS; row++) {
+    for (uint8_t col = 0; col < COLS; col++) {
       const unsigned long prev = states[col][row];
-      const bool now = digitalRead(rowPins[row]) == LOW; // todo maybe needs to be flipped?
+      const bool now = digitalRead(colPins[col]) == LOW; // todo maybe needs to be flipped?
 
       if (now != (prev > 0)) {
+        #ifdef DEBUG
+        Serial.print("["); Serial.print(row, DEC); Serial.print("]");
+        Serial.print("["); Serial.print(col, DEC); Serial.print("]");
+        Serial.println(now ? "DOWN" : "UP");
+        #endif
+
         if (now) {
           states[col][row] = time;
           currentMode->onPress(row, col);
@@ -53,6 +64,12 @@ void loop()
         }
       } else if (now && (time - prev) >= longPressMs) {
         states[col][row] = time; // reset
+
+        #ifdef DEBUG
+        Serial.print("["); Serial.print(row, DEC); Serial.print("]");
+        Serial.print("["); Serial.print(col, DEC); Serial.print("]");
+        Serial.println("LONG");
+        #endif
 
         // bad way of doing this
         // detect numlock and swich modes
@@ -68,6 +85,6 @@ void loop()
       }
     }
 
-    digitalWrite(colPins[col], HIGH);
+    digitalWrite(rowPins[row], HIGH);
   }
 }
