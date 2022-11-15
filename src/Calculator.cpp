@@ -46,7 +46,9 @@ void Calculator::onLongPress(char row, char column) {
             this->memory[input - 'a'] = this->getResult();
             break;
         case '\n':
-            Keyboard.print(this->getResult(), this->inputOffset);
+            char buffer[255];
+            dtostrf(this->getInput(), 10, 5, buffer);
+            Keyboard.print(buffer);
             break;
     }
 }

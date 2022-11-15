@@ -27,9 +27,10 @@ class Calculator : public KeyboardInterface {
 
         // result / (10^offset)
         double result = 0; 
-        int input = 0;
+        long input = 0;
         unsigned char inputOffset = 0;
         bool clearNext = false;
+        bool drawNext = true;
 
         char operation = '+';      
         double memory[4];

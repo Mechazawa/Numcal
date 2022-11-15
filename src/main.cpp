@@ -12,6 +12,8 @@
 #include <Wire.h>
 #endif
 
+#include "DinoGraphics.h"
+
 // unpaged
 U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 16, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
 // U8G2_SSD1305_128X32_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
@@ -38,7 +40,7 @@ unsigned short longPressMs = 1000;
 
 void setup()
 {
-  NKROKeyboard.begin();
+  BootKeyboard.begin();
   Serial.begin(9600);
   u8g2.begin();
   
@@ -92,7 +94,9 @@ void loop()
         // bad way of doing this
         // detect numlock and swich modes
         if (col == 0 && row == 1) {
-          if (currentMode == &numpad) {
+          if (states[0][0] > 0) {
+            
+          } else if (currentMode == &numpad) {
             currentMode = &calculator;
           } else {
             currentMode = &numpad;
@@ -108,5 +112,6 @@ void loop()
     digitalWrite(rowPins[row], HIGH);
   }
 
+  currentMode->tick(time);
   currentMode->draw(&u8g2);
 }

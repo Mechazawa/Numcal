@@ -1,27 +1,20 @@
 #include "Numpad.hpp"
 
 KeyboardKeycode Numpad::getChar(unsigned char row, unsigned char column) const {
-    return this->mapping[this->numlock][row][column];
+    return this->mapping[row][column];
 }
 
 void Numpad::onPress(char row, char column) {
-    KeyboardKeycode _char = this->getChar(row, column);
+    const KeyboardKeycode _char = this->getChar(row, column);
 
-    NKROKeyboard.press(_char);
-    NKROKeyboard.send();
-
-    if (_char == KEY_NUM_LOCK) {
-        this->numlock = !this->numlock;
-    }
-
-    this->drawNext = true;
+    BootKeyboard.press(_char);
 }
 
 void Numpad::onRelease(char row, char column) {
+    const KeyboardKeycode _char = this->getChar(row, column);
     this->drawNext = true;
 
-    NKROKeyboard.release(this->getChar(row, column));
-    NKROKeyboard.send();
+    BootKeyboard.release(_char);
 }
 
 void Numpad::draw(U8G2* u8g2) {
@@ -31,12 +24,19 @@ void Numpad::draw(U8G2* u8g2) {
     u8g2->clearBuffer();
     u8g2->setFont(u8g2_font_ncenB08_tr);	// choose a suitable font
     
-    if(this->numlock) {
+    if(BootKeyboard.getLeds() & LED_NUM_LOCK) {
         u8g2->drawStr(2,10,"Numlock ON");
     } else {
         u8g2->drawStr(2,10,"Numlock OFF");
     }
     u8g2->sendBuffer();
+}
+
+void Numpad::tick(const unsigned long ms) {
+    const unsigned char leds = BootKeyboard.getLeds();
+
+    this->drawNext = this->ledState != leds;
+    this->ledState = leds;
 }
 
 void Numpad::onShow() {
