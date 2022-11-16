@@ -1,3 +1,4 @@
+#include "KeyboardConfig.h"
 #include "KeyboardInterface.hpp"
 
 #pragma once
@@ -6,6 +7,15 @@
 class Numpad : public KeyboardInterface {
     private:
         int x; // dino height
+
+        const unsigned char mapping[ROWS][COLS] = {
+            {0, 0, 0, 0},
+            {0, 0, 0, 0},
+            {0, 0, 0, 0},
+            {0, 0, 0, 0},
+            {0, 0, 0, 0},
+            {0, 0, 0, 0},
+        };
         
     protected:
         char getAction(char row, char column) const;
