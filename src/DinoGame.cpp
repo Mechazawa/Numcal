@@ -10,13 +10,39 @@ void DinoGame::onPress(char row, char column) {
 
     switch(action) {
         case 0:
+            this->entities[this->findDeadEntity()] = {
+                128, 8, true, 0, 
+                {EDinoSprites::CACTUS_1}, 
+                1, 1000, 0, false
+            };
+            break;
         case 1:
+            this->entities[this->findDeadEntity()] = {
+                128, 5, true, 0, 
+                {EDinoSprites::DINO_6, EDinoSprites::DINO_7}, 
+                2, 200, 0, false
+            };
+            break;
         case 2:
             this->entities[this->findDeadEntity()] = {
-        150, 30 - dinoSprites[0].height, true, 0, 
-        {EDinoSprites::DINO_6, EDinoSprites::DINO_7}, 
-        2, 300, 0, false
-    };
+                128, 0, true, 0, 
+                {EDinoSprites::BIRD_1, EDinoSprites::BIRD_2}, 
+                2, 400, 0, false
+            };
+            break;
+        case 3:
+            this->entities[this->findDeadEntity()] = {
+                128, 8, true, 0, 
+                {EDinoSprites::CACTUS_2}, 
+                1, 1000, 0, false
+            };
+            break;
+        case 4:
+            this->entities[this->findDeadEntity()] = {
+                128, 8, true, 0, 
+                {EDinoSprites::CACTUS_3}, 
+                1, 1000, 0, false
+            };
             break;
     }
 }
@@ -56,7 +82,7 @@ void DinoGame::tick(const unsigned long ms) {
             continue;
         }
 
-        entity->x -= (delta / 1000) * this->speed;
+        entity->x -= ((float)delta / 1000) * this->speed;
         const Sprite* sprite = &dinoSprites[entity->frames[entity->frame]];
 
         if(entity->x + sprite->width < 0) {
@@ -89,7 +115,7 @@ void DinoGame::reset() {
     }
 
     this->dino = {
-        10, 30 - dinoSprites[0].height, true, 0, 
+        7, 30 - dinoSprites[0].height, true, 0, 
         {EDinoSprites::DINO_3, EDinoSprites::DINO_4}, 
         2, 200, 0, false
     };

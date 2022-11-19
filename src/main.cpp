@@ -98,6 +98,9 @@ void loop()
         // detect numlock and swich modes
         if (col == 0 && row == 1) {
           if (states[0][0] > 0) {
+            #ifdef DEBUG
+            Serial.println("Dino Mode activated");
+            #endif
             currentMode = &dinoGame;
           } else if (currentMode == &numpad) {
             currentMode = &calculator;

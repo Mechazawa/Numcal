@@ -13,7 +13,7 @@ typedef struct Entity {
     short y;
     bool collision;
     unsigned char frame;
-    unsigned char frames[16];
+    unsigned char frames[8];
     unsigned char frame_count;
     unsigned short animation_delay;
     unsigned short animation_frametime;
@@ -29,13 +29,13 @@ class DinoGame : public KeyboardInterface {
             {0, 0, 0, 0},
             {0, 0, 0, 0},
             {0, 0, 0, 0},
-            {0, 0, 0, 0},
-            {0, 0, 0, 0},
+            {4, 0, 0, 0},
+            {1, 2, 3, 0},
             {0, 0, 0, 0},
         };
 
         unsigned long lastTick = 0;
-        float speed = 3;
+        float speed = 10;
         
     protected:
         unsigned char getAction(unsigned char row, unsigned char column) const;

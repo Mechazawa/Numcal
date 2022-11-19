@@ -12,6 +12,7 @@ enum EDinoSprites : unsigned char {
     DINO_7, // crouch 2
     CACTUS_1,
     CACTUS_2,
+    CACTUS_3,
     BIRD_1,
     BIRD_2,
 };
