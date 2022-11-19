@@ -13,7 +13,7 @@ class Numpad : public KeyboardInterface {
 
     protected:
         const KeyboardKeycode mapping[ROWS][COLS] =  {
-            {KEY_F13, KEY_F14, KEY_F15, KEY_F16},
+            {KEY_F13, KEY_F14, KEY_DELETE, KEY_BACKSPACE},
             {KEY_NUM_LOCK, KEYPAD_DIVIDE, KEYPAD_MULTIPLY, KEYPAD_SUBTRACT},
             {KEYPAD_7, KEYPAD_8, KEYPAD_9, KEYPAD_ADD},
             {KEYPAD_4, KEYPAD_5, KEYPAD_6, KEYPAD_ADD},
