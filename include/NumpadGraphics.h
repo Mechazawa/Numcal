@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Sprite.h"
+#include <avr/pgmspace.h>
 
 enum ENumpadSprites : uint8_t {
     NUMLOCK_ON = 0,

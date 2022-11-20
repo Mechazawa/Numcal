@@ -2,18 +2,14 @@
 #include "HID-Project.h"
 #include "KeyboardConfig.h"
 #include "Numpad.hpp"
-#include "Calculator.hpp"
+// #include "Calculator.hpp"
 #include "DinoGame.hpp"
 
 #include <U8g2lib.h>
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
 #endif
-#ifdef U8X8_HAVE_HW_I2C
-#include <Wire.h>
-#endif
 
-#include "DinoGraphics.h"
 
 // unpaged
 U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 16, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
@@ -26,11 +22,11 @@ U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*
 #define DEBUG
 
 Numpad numpad;
-Calculator calculator;
+// Calculator calculator;
 DinoGame dinoGame;
 
-KeyboardInterface* currentMode = &dinoGame;
-// KeyboardInterface* currentMode = &numpad;
+// KeyboardInterface* currentMode = &dinoGame;
+KeyboardInterface* currentMode = &numpad;
 
 const uint8_t colPins[COLS] = {A3, A2, A1, A0};
 const uint8_t rowPins[ROWS] = {9, 8, 7, 6, 5, 4};
@@ -103,7 +99,8 @@ void loop()
             #endif
             currentMode = &dinoGame;
           } else if (currentMode == &numpad) {
-            currentMode = &calculator;
+            currentMode = &dinoGame;
+            // currentMode = &calculator;
           } else {
             currentMode = &numpad;
           }
