@@ -3,17 +3,15 @@
 #include "KeyboardConfig.h"
 #include "Numpad.hpp"
 // #include "Calculator.hpp"
-#include "DinoGame.hpp"
+// #include "DinoGame.hpp"
 
 #include <U8g2lib.h>
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
-#endif
-
-
-// unpaged
+U8G2_SSD1305_128X32_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
+#else
 U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 16, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
-// U8G2_SSD1305_128X32_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
+#endif
 
 // paged
 // U8G2_SSD1305_128X32_ADAFRUIT_1_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 16, /* cs=*/ 10, /* dc=*/ 14, /* reset=*/ 3);
@@ -23,7 +21,7 @@ U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*
 
 Numpad numpad;
 // Calculator calculator;
-DinoGame dinoGame;
+// DinoGame dinoGame;
 
 // KeyboardInterface* currentMode = &dinoGame;
 KeyboardInterface* currentMode = &numpad;
@@ -97,9 +95,9 @@ void loop()
             #ifdef DEBUG
             Serial.println("Dino Mode activated");
             #endif
-            currentMode = &dinoGame;
+            // currentMode = &dinoGame;
           } else if (currentMode == &numpad) {
-            currentMode = &dinoGame;
+            // currentMode = &dinoGame;
             // currentMode = &calculator;
           } else {
             currentMode = &numpad;
