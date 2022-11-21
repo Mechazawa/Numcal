@@ -85,6 +85,12 @@ void loop()
           currentMode->onRelease(row, col);
         }
       } else if (now && (time - prev) >= longPressMs) {
+        #ifdef DEBUG
+        Serial.print("["); Serial.print(row, DEC); Serial.print("]");
+        Serial.print("["); Serial.print(col, DEC); Serial.print("]");
+        Serial.println("LONG");
+        #endif
+
         states[col][row] = time; // reset
 
         currentMode->onHide();
@@ -96,7 +102,7 @@ void loop()
             #ifdef DEBUG
             Serial.println("Dino Mode activated");
             #endif
-            // currentMode = &dinoGame;
+            currentMode = &dinoGame;
           } else if (currentMode == &numpad) {
             // currentMode = &dinoGame;
             currentMode = &calculator;
@@ -106,7 +112,7 @@ void loop()
 
           currentMode->onShow();
         } else {
-          currentMode->onLongPress(col, row);
+          currentMode->onLongPress(row, col);
         }
       }
     }

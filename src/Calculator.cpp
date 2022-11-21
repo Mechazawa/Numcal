@@ -1,7 +1,23 @@
 #include "Calculator.hpp"
 #include "Arduino.h"
 #include "HID-Project.h"
+#include <EEPROM.h>
 #include <math.h>
+
+typedef union {
+    double         d;
+    unsigned char  bytes[sizeof(double)];
+} MemorySlot;
+
+void double_to_str(char* buffer, double value) {
+    String(value, CALC_PRECISION).toCharArray(buffer, CALC_VALUE_SIZE + 1);
+
+    // trim zeros
+    char* back = buffer + strlen(buffer);
+    while((*--back) == '0');
+    if((*back) == '.') back--;
+    *(back+1) = '\0';
+}
 
 Calculator::Calculator() {
     this->clearInput();
@@ -26,24 +42,42 @@ void Calculator::onPress(const char input) {
     }
 }
 
-void Calculator::loadMemory(const unsigned char slot) const {
-    strcpy((char*)this->input, this->memory[slot]);
+void Calculator::loadMemory(const unsigned char slot) {
+    MemorySlot value;
+
+    for (unsigned char i = 0; i < sizeof(double); i++) {
+        int address = i + (sizeof(double) * slot) + ADDR_EEPROM_CALC_MEMORY;
+        
+        value.bytes[i] = EEPROM.read(address);
+    }
+
+    double_to_str(this->input, value.d);
 }
 
-void Calculator::storeMemory(const unsigned char slot, const char* data) {
-    strcpy(this->memory[slot], data);
+void Calculator::storeMemory(const unsigned char slot, double data) const {
+    MemorySlot value;
+    value.d = data;
+    
+    for (unsigned char i = 0; i < sizeof(double); i++) {
+        int address = i + (sizeof(double) * slot) + ADDR_EEPROM_CALC_MEMORY;
+
+        EEPROM.update(address, value.bytes[i]);
+    }
 }
 
 void Calculator::onLongPress(const char row, const char column) {
     this->onLongPress(this->getChar(row, column));
 }
 void Calculator::onLongPress(const char input) {
+    this->drawNext = true;
+
     switch(input) {
         case 'a':
         case 'b':
         case 'c':
         case 'd':
-            this->storeMemory(input - 'a', this->getResult());
+            this->storeMemory(input - 'a', this->result);
+            strcpy(this->input, this->getResult());
             break;
         case '.':
         case 0:
@@ -69,10 +103,6 @@ bool Calculator::pushInput(const char value) {
 
     this->staleInput = false;
     return this->push(this->input, value);
-}
-
-bool Calculator::pushResult(const char value) {
-    return this->push(this->result, value);
 }
 
 bool Calculator::push(char* target, const char value, const unsigned char size) {
@@ -150,26 +180,25 @@ const char* Calculator::getInput() const {
     return this->input[0] == 0 ? "0" : this->input;
 }
 
-const char* Calculator::getResult() const {
-    return this->result[0] == 0 ? "0" : this->result;
+const char* Calculator::getResult() const {    
+    return this->resultBuffer;
 }
 
 void Calculator::doMath(const char op) {
     double input = atof(this->getInput());
-    double result = atof(this->getResult());
 
     this->error = false;
 
     switch(op) {
         case '+':
-            result += input;
+            this->result += input;
             break;
         case '-':
-            result -= input;
+            this->result -= input;
             break;
         case '*':
         case 'x':
-            result *= input;
+            this->result *= input;
             break;
         case '/':
             if (input == 0) {
@@ -177,20 +206,14 @@ void Calculator::doMath(const char op) {
                 return;
             }
 
-            result /= input;
+            this->result /= input;
             break;
         default:
-            strcpy(this->result, this->getInput());
+            this->result = input;
             return;
     }
 
-    String(result, CALC_PRECISION).toCharArray(this->result, CALC_VALUE_SIZE + 1);
-
-    // trim zeros
-    char* back = this->result + strlen(this->result);
-    while((*--back) == '0');
-    if((*back) == '.') back--;
-    *(back+1) = '\0';
+    this->updateResultBuffer();
 }
 
 void Calculator::draw(U8G2* u8g2) {
@@ -224,8 +247,14 @@ void Calculator::onShow() {
 
 void Calculator::clearInput() {
     this->input[0] = 0;
+    this->staleInput = true;
 }
 
 void Calculator::clearResult() {
-    this->result[0] = 0;
+    this->result= 0;
+    this->updateResultBuffer();
+}
+
+void Calculator::updateResultBuffer() {
+    double_to_str(this->resultBuffer, this->result);
 }

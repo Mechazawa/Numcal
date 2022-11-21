@@ -5,8 +5,9 @@
 #include "KeyboardConfig.h"
 #include "KeyboardInterface.hpp"
 
-#define CALC_VALUE_SIZE 20
+#define CALC_VALUE_SIZE 16
 #define CALC_PRECISION 4
+#define ADDR_EEPROM_CALC_MEMORY 0
 
 class Calculator : public KeyboardInterface {
     protected:
@@ -24,10 +25,9 @@ class Calculator : public KeyboardInterface {
         bool drawNext = true;
 
         char input[CALC_VALUE_SIZE + 1];
-        char result[CALC_VALUE_SIZE + 1];
-
-        char memory[4][CALC_VALUE_SIZE] = {"0","0","0","0"};
-
+        double result;
+        char resultBuffer[CALC_VALUE_SIZE + 1];
+        
         char pendingOperation = 0;
         char staleInput;
         bool error;
@@ -40,6 +40,8 @@ class Calculator : public KeyboardInterface {
         bool pushInput(const char value);
         bool pushResult(const char value);
 
+        void updateResultBuffer();
+
         bool push(char* target, const char value, const unsigned char size = CALC_VALUE_SIZE);
     public:
         Calculator();
@@ -51,8 +53,8 @@ class Calculator : public KeyboardInterface {
         void draw(U8G2* u8g2) override;
         void onShow() override;
 
-        void loadMemory(const unsigned char slot) const;
-        void storeMemory(const unsigned char slot, const char* data); 
+        void loadMemory(const unsigned char slot);
+        void storeMemory(const unsigned char slot, double data) const; 
 
         void clearInput();
         void clearResult();
