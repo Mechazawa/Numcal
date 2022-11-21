@@ -5,50 +5,57 @@
 #include "KeyboardConfig.h"
 #include "KeyboardInterface.hpp"
 
-// enum ECalculatorMode : unsigned char {
-//     SIMPLE,
-//     CYCLE_BACK,
-// };
+#define CALC_VALUE_SIZE 20
+#define CALC_PRECISION 4
 
 class Calculator : public KeyboardInterface {
     protected:
-        // ECalculatorMode mode = ECalculatorMode::SIMPLE;
-
         unsigned char getChar(unsigned char row, unsigned char column) const;
 
         const unsigned char mapping[ROWS][COLS] =  { 
             {'a', 'b', 'c', 'd'},
-            {'C', '/', '*', '-'},
-            {_C(7), _C(8), _C(9), '+'},
-            {_C(4), _C(5), _C(6), '+'},
-            {_C(1), _C(2), _C(3), '\n'},
-            {_C(0), _C(0), '.', '\n'},
+            {'C', '/', 'x', '-'},
+            {'7', '8', '9', '+'},
+            {'4', '5', '6', '+'},
+            {'1', '2', '3', '\n'},
+            {'0', '0', '.', '\n'},
         };
 
-        // result / (10^offset)
-        double result = 0; 
-        long input = 0;
-        unsigned char inputOffset = 0;
-        bool clearNext = false;
         bool drawNext = true;
 
-        char operation = '+';      
-        double memory[4];
+        char input[CALC_VALUE_SIZE + 1];
+        char result[CALC_VALUE_SIZE + 1];
+
+        char memory[4][CALC_VALUE_SIZE] = {"0","0","0","0"};
+
+        char pendingOperation = 0;
+        char staleInput;
+        bool error;
         
         void doOperation(char op);
-        void doNumeric(char input);
+        void doNumeric(const char input);
         void doMath(char op);
+        bool hasPoint() const; 
+
+        bool pushInput(const char value);
+        bool pushResult(const char value);
+
+        bool push(char* target, const char value, const unsigned char size = CALC_VALUE_SIZE);
     public:
-        void onPress(char row, char column) override;
-        void onLongPress(char row, char column) override;
+        Calculator();
+
+        void onPress(const char row, const char column) override;
+        void onPress(const char input);
+        void onLongPress(const char row, const char column) override;
+        void onLongPress(const char input);
         void draw(U8G2* u8g2) override;
         void onShow() override;
 
-        double getInput() const;
-        void setInput(double value);
-        double getResult() const;
+        void loadMemory(const unsigned char slot) const;
+        void storeMemory(const unsigned char slot, const char* data); 
 
-        // ECalculatorMode getMode() const;
-        // void setMode(ECalculatorMode mode);
-        // void nextMode();
+        void clearInput();
+        void clearResult();
+        const char* getInput() const;
+        const char* getResult() const;
 };

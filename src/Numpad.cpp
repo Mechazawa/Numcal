@@ -27,8 +27,8 @@ void Numpad::draw(U8G2* u8g2) {
 
     u8g2->clearBuffer();
     u8g2->drawXBMP(4, 1, sprite->width, sprite->height, sprite->data);    
-    u8g2->setFont(u8g2_font_sticker_mel_tr);
-    u8g2->drawStr(38,24,"Love You!!");
+    // u8g2->setFont(u8g2_font_sticker_mel_tr);
+    // u8g2->drawStr(38,24,"Love You!!");
     u8g2->sendBuffer();
 }
 
