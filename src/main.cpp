@@ -21,11 +21,11 @@ U8G2_SSD1305_128X32_ADAFRUIT_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 15, /* data=*
 
 Numpad numpad;
 Calculator calculator;
-DinoGame dinoGame;
+// DinoGame dinoGame;
 
 // KeyboardInterface* currentMode = &dinoGame;
-KeyboardInterface* currentMode = &calculator;
-// KeyboardInterface* currentMode = &numpad;
+// KeyboardInterface* currentMode = &calculator;
+KeyboardInterface* currentMode = &numpad;
 
 const uint8_t colPins[COLS] = {A3, A2, A1, A0};
 const uint8_t rowPins[ROWS] = {9, 8, 7, 6, 5, 4};
@@ -102,7 +102,7 @@ void loop()
             #ifdef DEBUG
             Serial.println("Dino Mode activated");
             #endif
-            currentMode = &dinoGame;
+            // currentMode = &dinoGame;
           } else if (currentMode == &numpad) {
             // currentMode = &dinoGame;
             currentMode = &calculator;

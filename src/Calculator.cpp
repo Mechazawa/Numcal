@@ -80,7 +80,7 @@ void Calculator::onLongPress(const char input) {
             strcpy(this->input, this->getResult());
             break;
         case '.':
-        case 0:
+        case '\n':
             Keyboard.print(this->getResult());
             break;
     }
@@ -210,7 +210,7 @@ void Calculator::doMath(const char op) {
             break;
         default:
             this->result = input;
-            return;
+            break;
     }
 
     this->updateResultBuffer();
@@ -243,6 +243,7 @@ void Calculator::onShow() {
 
     this->clearInput();
     this->clearResult();
+    this->pendingOperation = 0;
 }
 
 void Calculator::clearInput() {
