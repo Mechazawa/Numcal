@@ -15,15 +15,15 @@ use embassy_rp::peripherals::{SPI1, USB};
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State as HidState};
+use embassy_usb::class::hid::{HidReaderWriter, State as HidState};
 use embassy_usb::{Builder, Config as UsbConfig};
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::{Baseline, Text};
+use embedded_hal_bus::spi::ExclusiveDevice;
 use heapless::Vec;
-use ssd1306::mode::BufferedGraphicsMode;
 use ssd1306::prelude::*;
 use ssd1306::Ssd1306;
 use static_cell::StaticCell;
@@ -67,27 +67,6 @@ impl KeyState {
     }
 }
 
-// USB HID request handler (empty implementation)
-struct MyRequestHandler {}
-
-impl RequestHandler for MyRequestHandler {
-    fn get_report(&mut self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
-        None
-    }
-
-    fn set_report(&mut self, _id: ReportId, _data: &[u8]) -> OutResponse {
-        OutResponse::Accepted
-    }
-
-    fn set_idle_ms(&mut self, _id: Option<ReportId>, _dur: u32) {}
-
-    fn get_idle_ms(&mut self, _id: Option<ReportId>) -> Option<u32> {
-        None
-    }
-}
-
-use embassy_usb::control::OutResponse;
-
 /// Main entry point - spawns all async tasks
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -97,17 +76,22 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // Initialize the OLED display task
-    spawner.spawn(display_task(p.SPI1, p.PIN_15, p.PIN_16, p.PIN_10, p.PIN_14, p.PIN_3)).unwrap();
+    // Note: SPI1 pins are CLK=PIN_14, MOSI=PIN_15, CS=PIN_10, DC=PIN_13, RST=PIN_3
+    spawner.spawn(display_task(p.SPI1, p.PIN_14, p.PIN_15, p.PIN_10, p.PIN_13, p.PIN_3)).unwrap();
 
     // Initialize the USB HID keyboard task
     spawner.spawn(usb_task(p.USB)).unwrap();
 
-    // Run the keyboard matrix scanner (this task runs in the main task)
-    keyboard_task(
+    // Initialize the keyboard matrix scanner task
+    spawner.spawn(keyboard_task(
         p.PIN_9, p.PIN_8, p.PIN_7, p.PIN_6, p.PIN_5, p.PIN_4,  // Row pins
         p.PIN_26, p.PIN_27, p.PIN_28, p.PIN_29,                  // Column pins
-    )
-    .await;
+    )).unwrap();
+
+    // Keep the main task alive
+    loop {
+        Timer::after(Duration::from_secs(60)).await;
+    }
 }
 
 /// Keyboard matrix scanning task
@@ -225,10 +209,10 @@ async fn keyboard_task(
 #[embassy_executor::task]
 async fn display_task(
     spi_peripheral: SPI1,
-    sck: embassy_rp::peripherals::PIN_15,
-    mosi: embassy_rp::peripherals::PIN_16,
+    sck: embassy_rp::peripherals::PIN_14,
+    mosi: embassy_rp::peripherals::PIN_15,
     cs: embassy_rp::peripherals::PIN_10,
-    dc: embassy_rp::peripherals::PIN_14,
+    dc: embassy_rp::peripherals::PIN_13,
     rst: embassy_rp::peripherals::PIN_3,
 ) {
     info!("Initializing OLED display");
@@ -238,14 +222,12 @@ async fn display_task(
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 8_000_000; // 8 MHz
 
-    let spi = Spi::new_blocking(spi_peripheral, sck, mosi, spi_config);
+    let spi = Spi::new_blocking_txonly(spi_peripheral, sck, mosi, spi_config);
 
     // Configure control pins
     let dc_pin = Output::new(dc, Level::Low);
     let mut rst_pin = Output::new(rst, Level::High);
-
-    // Chip select is active low
-    let mut cs_pin = Output::new(cs, Level::High);
+    let cs_pin = Output::new(cs, Level::High); // Active low
 
     // Reset the display
     rst_pin.set_low();
@@ -253,22 +235,14 @@ async fn display_task(
     rst_pin.set_high();
     Timer::after(Duration::from_millis(10)).await;
 
-    // Activate chip select
-    cs_pin.set_low();
+    // Wrap SPI with ExclusiveDevice to provide SpiDevice trait
+    let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
 
     // Create the display interface
-    let interface = ssd1306::prelude::SPIInterface::new(spi, dc_pin, cs_pin);
+    let interface = ssd1306::prelude::SPIInterface::new(spi_device, dc_pin);
 
     // Initialize the SSD1305 driver (compatible with SSD1306 driver)
-    let mut display: Ssd1306<
-        SPIInterface<
-            Spi<'_, SPI1, embassy_rp::spi::Blocking>,
-            Output<'_>,
-            Output<'_>,
-        >,
-        DisplaySize128x32,
-        BufferedGraphicsMode<DisplaySize128x32>,
-    > = Ssd1306::new(interface, DisplaySize128x32, DisplayRotation::Rotate0)
+    let mut display = Ssd1306::new(interface, DisplaySize128x32, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
 
     // Initialize the display

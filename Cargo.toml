@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 # Embassy async runtime and HAL for RP2040
 embassy-executor = { version = "0.6", features = ["arch-cortex-m", "executor-thread", "integrated-timers"] }
 embassy-time = { version = "0.3", features = ["defmt"] }
-embassy-rp = { version = "0.2", features = ["defmt", "unstable-pac", "time-driver", "binary-info"] }
+embassy-rp = { version = "0.2", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
 embassy-usb = { version = "0.3", features = ["defmt"] }
 embassy-futures = "0.1"
 
@@ -16,8 +16,9 @@ embassy-futures = "0.1"
 usbd-hid = "0.8"
 
 # Display drivers
-ssd1306 = "0.9"
+ssd1306 = "0.10"
 embedded-graphics = "0.8"
+embedded-hal-bus = { version = "0.2", features = ["defmt-03"] }
 
 # Cortex-M support
 cortex-m = { version = "0.7", features = ["inline-asm"] }
@@ -35,6 +36,10 @@ static_cell = "2.1"
 
 # Heapless for fixed-size data structures
 heapless = "0.8"
+
+# Portable atomic with critical-section for Cortex-M0+
+portable-atomic = { version = "1.11", features = ["critical-section"] }
+critical-section = "1.2"
 
 # RP2040 boot2 bootloader
 rp2040-boot2 = "0.3"
