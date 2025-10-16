@@ -67,10 +67,10 @@ elf2uf2-rs target/thumbv6m-none-eabi/debug/numcal numcal.uf2
 - **Columns (inputs):** GP26, GP27, GP28, GP29
 
 ### OLED Display (SPI)
-- **SCK:** GP15
-- **MOSI:** GP16
+- **SCK:** GP14
+- **MOSI:** GP15
 - **CS:** GP10
-- **DC:** GP14
+- **DC:** GP13
 - **RST:** GP3
 - **VCC:** 3.3V
 - **GND:** GND

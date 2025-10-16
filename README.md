@@ -23,10 +23,10 @@ The matrix scanning works by driving each row LOW sequentially and reading the c
 
 ### SSD1305 OLED Display (SPI)
 
-- **SCK (Clock):** GP15
-- **MOSI (Data):** GP16
+- **SCK (Clock):** GP14
+- **MOSI (Data):** GP15
 - **CS (Chip Select):** GP10
-- **DC (Data/Command):** GP14
+- **DC (Data/Command):** GP13
 - **Reset:** GP3
 
 The display runs at 8 MHz SPI clock speed and shows "Hello World" on startup.
