@@ -25,6 +25,11 @@ defmt = "0.3"
 defmt-rtt = "0.4"
 log = "0.4"
 
+# Display drivers
+ssd1306 = "0.10"
+embedded-graphics = "0.8"
+embedded-hal-bus = { version = "0.2", features = ["defmt-03"] }
+
 # Static cell for USB buffer
 static_cell = "2.1"
 
