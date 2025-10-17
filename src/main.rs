@@ -80,13 +80,13 @@ async fn main(spawner: Spawner) {
     spawner.spawn(display_task(p.SPI1, p.PIN_14, p.PIN_15, p.PIN_10, p.PIN_13, p.PIN_3)).unwrap();
 
     // Initialize the USB HID keyboard task
-    spawner.spawn(usb_task(p.USB)).unwrap();
+    // spawner.spawn(usb_task(p.USB)).unwrap();
 
     // Initialize the keyboard matrix scanner task
-    spawner.spawn(keyboard_task(
-        p.PIN_9, p.PIN_8, p.PIN_7, p.PIN_6, p.PIN_5, p.PIN_4,  // Row pins
-        p.PIN_26, p.PIN_27, p.PIN_28, p.PIN_29,                  // Column pins
-    )).unwrap();
+    // spawner.spawn(keyboard_task(
+    //     p.PIN_9, p.PIN_8, p.PIN_7, p.PIN_6, p.PIN_5, p.PIN_4,  // Row pins
+    //     p.PIN_26, p.PIN_27, p.PIN_28, p.PIN_29,                  // Column pins
+    // )).unwrap();
 
     // Keep the main task alive
     loop {
