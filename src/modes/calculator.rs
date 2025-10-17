@@ -53,6 +53,12 @@ impl Calculator {
             }
             // Operators
             '+' | '-' | '*' | '/' => {
+                // If input is empty, start with previous result
+                if self.input.is_empty() && self.result != CalcNum::ZERO {
+                    // Format previous result into input
+                    self.format_result_to_input();
+                }
+
                 if self.input.push(key_char).is_err() {
                     self.set_error("Input too long");
                 }
@@ -235,6 +241,25 @@ impl Calculator {
         Ok(result)
     }
 
+    /// Format result to input buffer (for operator chaining)
+    fn format_result_to_input(&mut self) {
+        let integer = self.result.to_num::<i64>();
+        let frac = (self.result.frac() * CalcNum::from_num(10000))
+            .to_num::<i64>()
+            .abs();
+
+        if frac == 0 {
+            write!(&mut self.input, "{integer}").ok();
+        } else {
+            let mut frac_str = heapless::String::<8>::new();
+            write!(&mut frac_str, "{frac:04}").ok();
+            while frac_str.ends_with('0') {
+                frac_str.pop();
+            }
+            write!(&mut self.input, "{integer}.{frac_str}").ok();
+        }
+    }
+
     /// Format a number with appropriate decimal places (static method)
     fn format_number_static(buf: &mut heapless::String<64>, num: CalcNum) {
         // Convert to string with up to 4 decimal places
@@ -249,21 +274,21 @@ impl Calculator {
         } else {
             // Has fractional part - show up to 4 decimals, trim trailing zeros
             let mut frac_str = heapless::String::<8>::new();
-            write!(&mut frac_str, "{:04}", frac).ok();
+            write!(&mut frac_str, "{frac:04}").ok();
 
             // Trim trailing zeros
             while frac_str.ends_with('0') {
                 frac_str.pop();
             }
 
-            write!(buf, "{}.{}", integer, frac_str).ok();
+            write!(buf, "{integer}.{frac_str}").ok();
         }
     }
 
     /// Set error message
     fn set_error(&mut self, msg: &'static str) {
         let mut err_str = heapless::String::new();
-        write!(&mut err_str, "{}", msg).ok();
+        write!(&mut err_str, "{msg}").ok();
         self.error = Some(err_str);
     }
 
@@ -273,14 +298,13 @@ impl Calculator {
 
         if let Some(ref err) = self.error {
             // Show error
-            write!(&mut text, "[CALC] Error: {}", err.as_str()).ok();
+            write!(&mut text, "Error: {}", err.as_str()).ok();
         } else if self.input.is_empty() {
             // Show result or ready state
-            write!(&mut text, "[CALC] = ").ok();
             Self::format_number_static(&mut text, self.result);
         } else {
             // Show current input
-            write!(&mut text, "[CALC] {}", self.input.as_str()).ok();
+            write!(&mut text, "{}", self.input.as_str()).ok();
         }
 
         text
