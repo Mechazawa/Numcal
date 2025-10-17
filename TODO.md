@@ -44,9 +44,11 @@
    - Display shows: `[NUM] R2C0 R3C1`
 
 2. **Calculator Mode**
-   - Keys displayed on OLED only, NOT sent to computer
-   - Display shows: `[CALC] R2C0 R3C1`
-   - Future: Implement calculator functionality
+   - Keys NOT sent to computer (display only)
+   - **Numlock** acts as Clear/Reset button:
+     - Press when input exists → Clear current input
+     - Press when no input → Reset calculator (clear result)
+   - Display shows calculator state (see Calculator Mode section below)
 
 3. **Reserved Modes** (M2, M3)
    - Placeholders for future functionality
@@ -104,15 +106,51 @@
 - Division must maintain precision (e.g., 1/3 = 0.333... displayed accurately)
 - Handle operator precedence correctly
 - Display input expression and result on OLED
-- Clear/reset functionality
+- **Numlock (R1C0)** acts as Clear/Reset:
+  - If input exists: Clear current input
+  - If no input: Reset calculator (clear result/history)
+- Enter key (R5C3) to evaluate expression
 
-**Suggested approach**:
+**Key mapping in Calculator mode**:
+- Row 1: Clear (Numlock), /, *, -
+- Row 2: 7, 8, 9, (unused)
+- Row 3: 4, 5, 6, +
+- Row 4: 1, 2, 3, (unused)
+- Row 5: (unused), 0, ., Enter (=)
+
+**Arithmetic approach**:
 - Use a fixed-point library or implement rational arithmetic (numerator/denominator)
 - Consider using `num-rational` crate (no_std compatible) for exact fraction representation
 - Alternative: Fixed-point with sufficient precision (e.g., Q16.16 or higher)
 - Build expression parser/evaluator for calculator logic
 
-**Display considerations**:
-- Line 1: Current expression being entered
-- Line 2: Result (or previous result)
-- Handle overflow/error states gracefully
+**Display layout** (128x64 OLED, ~21 chars per line with FONT_6X10):
+- **Line 1**: Mode indicator `[CALC]` + current input expression
+  - Example: `[CALC] 123+45`
+- **Line 2**: Result or previous calculation
+  - Example: `= 168`
+- **Line 3-4** (optional): Calculation history if space permits
+  - Example: `45-12 = 33`
+  - Show last 1-2 calculations
+
+**Display examples**:
+```
+[CALC] 123+45      <- Line 1: Current input
+= 168              <- Line 2: Result
+45-12 = 33         <- Line 3: History (optional)
+```
+
+```
+[CALC] 1/3         <- Line 1: Current input
+= 0.333...         <- Line 2: Result (repeating decimal)
+```
+
+```
+[CALC]             <- Line 1: No input
+= 0                <- Line 2: Ready state
+```
+
+**Error handling**:
+- Division by zero: Display "Error: Div/0"
+- Overflow: Display "Error: Overflow"
+- Invalid input: Display "Error: Invalid"
