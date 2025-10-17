@@ -4,7 +4,7 @@
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{SPI1, USB};
+use embassy_rp::peripherals::USB;
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_time::Timer;
@@ -133,13 +133,13 @@ async fn main(spawner: Spawner) {
 
         let mut text = heapless::String::<32>::new();
         use core::fmt::Write;
-        write!(&mut text, "Count: {}", counter).unwrap();
+        write!(&mut text, "Count: {counter}").unwrap();
 
         Text::with_baseline(&text, Point::new(5, 38), text_style, Baseline::Middle)
             .draw(&mut display)
             .unwrap();
         display.flush().unwrap();
 
-        log::info!("Display updated: {}", counter);
+        log::info!("Display updated: {counter}");
     }
 }
