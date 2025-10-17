@@ -119,10 +119,13 @@
 - Row 5: (unused), 0, ., Enter (=)
 
 **Arithmetic approach**:
-- Use a fixed-point library or implement rational arithmetic (numerator/denominator)
-- Consider using `num-rational` crate (no_std compatible) for exact fraction representation
-- Alternative: Fixed-point with sufficient precision (e.g., Q16.16 or higher)
+- **Use fixed-point arithmetic** (decided - best for finance/money calculations)
+- Precision: Q16.16 or Q32.32 format (enough for typical financial calculations)
+- Consider `fixed` crate or implement custom fixed-point type
+- Must handle: addition, subtraction, multiplication, division
+- Display with appropriate decimal places (2-4 decimals typical)
 - Build expression parser/evaluator for calculator logic
+- Future enhancement: Add rational arithmetic mode for exact fractions
 
 **Display layout** (128x64 OLED, ~21 chars per line with FONT_6X10):
 - **Line 1**: Mode indicator `[CALC]` + current input expression
