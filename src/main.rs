@@ -1,12 +1,15 @@
 #![no_std]
 #![no_main]
 
+use core::fmt::Write;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::USB;
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::usb::{Driver, InterruptHandler};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::Timer;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
@@ -17,23 +20,103 @@ use embedded_graphics::text::{Baseline, Text};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use ssd1306::prelude::*;
 use ssd1306::Ssd1306;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
+// Channel for sending display updates from counter task to display task
+static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, heapless::String<32>, 2> = Channel::new();
+
+type DisplayType = Ssd1306<
+    SPIInterface<
+        ExclusiveDevice<
+            Spi<'static, embassy_rp::peripherals::SPI1, embassy_rp::spi::Blocking>,
+            Output<'static>,
+            embedded_hal_bus::spi::NoDelay,
+        >,
+        Output<'static>,
+    >,
+    DisplaySize128x64,
+    ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>,
+>;
+
 #[embassy_executor::task]
 async fn logger_task(driver: Driver<'static, USB>) {
     embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver);
 }
 
+#[embassy_executor::task]
+async fn counter_task() {
+    log::info!("Counter task started");
+
+    let sender = DISPLAY_CHANNEL.sender();
+
+    // Send initial message
+    let mut text = heapless::String::<32>::new();
+    write!(&mut text, "Hello OLED!").unwrap();
+    sender.send(text).await;
+
+    // Increment counter every 5 seconds
+    let mut counter = 0;
+    loop {
+        Timer::after_secs(5).await;
+        counter += 1;
+
+        let mut text = heapless::String::<32>::new();
+        write!(&mut text, "Count: {counter}").unwrap();
+        sender.send(text).await;
+
+        log::info!("Counter: {counter}");
+    }
+}
+
+#[embassy_executor::task]
+async fn display_task(display: &'static mut DisplayType) {
+    log::info!("Display rendering task started");
+
+    let receiver = DISPLAY_CHANNEL.receiver();
+
+    // Create text style
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    // Wait for messages and render them
+    loop {
+        let text = receiver.receive().await;
+        log::info!("Rendering: {}", text.as_str());
+
+        // Clear display
+        display.clear(BinaryColor::Off).unwrap();
+
+        // Clear the rightmost columns explicitly to remove gibberish
+        Rectangle::new(Point::new(124, 0), Size::new(4, 64))
+            .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+            .draw(display)
+            .unwrap();
+
+        // Draw text
+        Text::with_baseline(text.as_str(), Point::new(5, 38), text_style, Baseline::Middle)
+            .draw(display)
+            .unwrap();
+
+        // Flush to display
+        match display.flush() {
+            Ok(_) => log::info!("Display updated successfully"),
+            Err(_) => log::error!("Display flush failed!"),
+        }
+    }
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let driver = Driver::new(p.USB, Irqs);
-    spawner.spawn(logger_task(driver).expect("Failed to spawn logger task"));
+    spawner.spawn(logger_task(driver).unwrap());
 
     log::info!("NumCal starting...");
 
@@ -73,10 +156,13 @@ async fn main(spawner: Spawner) {
     let interface = ssd1306::prelude::SPIInterface::new(spi_device, dc_pin);
     log::info!("Display interface created");
 
-    // Initialize the SSD1306 driver (128x64) - trying 64 height to fix interlacing
+    // Initialize the SSD1306 driver (128x64)
     log::info!("Creating display driver (128x64)...");
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
+    static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
+    let display = DISPLAY.init(
+        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+            .into_buffered_graphics_mode(),
+    );
 
     // Initialize the display
     log::info!("Initializing display hardware...");
@@ -90,56 +176,14 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    // Create text style
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
+    log::info!("Display initialization complete");
 
-    // Draw "Hello OLED!" text - moved down to avoid top cutoff
-    log::info!("Drawing text to display...");
-    display.clear(BinaryColor::Off).unwrap();
+    // Spawn tasks
+    spawner.spawn(display_task(display).unwrap());
+    spawner.spawn(counter_task().unwrap());
 
-    // Clear the rightmost columns explicitly to remove gibberish
-    Rectangle::new(Point::new(124, 0), Size::new(4, 64))
-        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-        .draw(&mut display)
-        .unwrap();
-
-    Text::with_baseline("Hello OLED!", Point::new(5, 38), text_style, Baseline::Middle)
-        .draw(&mut display)
-        .unwrap();
-
-    match display.flush() {
-        Ok(_) => log::info!("Display updated successfully!"),
-        Err(_) => log::error!("Display flush failed!"),
-    }
-
-    log::info!("Display initialization complete, entering update loop");
-
-    // Keep the task alive and update counter every 5 seconds
-    let mut counter = 0;
+    // Main task just keeps the executor alive
     loop {
-        Timer::after_secs(5).await;
-        counter += 1;
-
-        display.clear(BinaryColor::Off).unwrap();
-
-        // Clear the rightmost columns explicitly to remove gibberish
-        Rectangle::new(Point::new(124, 0), Size::new(4, 64))
-            .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-            .draw(&mut display)
-            .unwrap();
-
-        let mut text = heapless::String::<32>::new();
-        use core::fmt::Write;
-        write!(&mut text, "Count: {counter}").unwrap();
-
-        Text::with_baseline(&text, Point::new(5, 38), text_style, Baseline::Middle)
-            .draw(&mut display)
-            .unwrap();
-        display.flush().unwrap();
-
-        log::info!("Display updated: {counter}");
+        Timer::after_secs(60).await;
     }
 }
