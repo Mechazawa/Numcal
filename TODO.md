@@ -93,4 +93,26 @@
 - **display_task**: Receives text updates, renders to OLED
 
 ## Future Enhancements
-- [ ] Calculator mode: Implement actual calculator functionality
+
+### Calculator Mode Implementation
+**Status**: ❌ Not started
+
+**Requirements**:
+- Must be **accurate** - NO floating point arithmetic
+- Use fixed-point arithmetic or rational numbers (fraction representation)
+- Support basic operations: +, -, *, /
+- Division must maintain precision (e.g., 1/3 = 0.333... displayed accurately)
+- Handle operator precedence correctly
+- Display input expression and result on OLED
+- Clear/reset functionality
+
+**Suggested approach**:
+- Use a fixed-point library or implement rational arithmetic (numerator/denominator)
+- Consider using `num-rational` crate (no_std compatible) for exact fraction representation
+- Alternative: Fixed-point with sufficient precision (e.g., Q16.16 or higher)
+- Build expression parser/evaluator for calculator logic
+
+**Display considerations**:
+- Line 1: Current expression being entered
+- Line 2: Result (or previous result)
+- Handle overflow/error states gracefully
