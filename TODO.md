@@ -89,10 +89,21 @@
    - Verify display shows correct mode indicator
 
 ### Architecture
-- **keyboard_task**: Scans matrix, detects keys, sends to USB and display channels
-- **usb_hid_task**: Receives key events, sends USB HID reports
+
+**File structure**:
+- `src/main.rs` - Main entry point, hardware init, task spawning
+- `src/modes/mod.rs` - Mode enum and mode switching logic
+- `src/modes/numpad.rs` - Numpad mode implementation
+- `src/modes/calculator.rs` - Calculator mode implementation (fixed-point arithmetic)
+- `src/keyboard.rs` - Keyboard matrix scanning task
+- `src/display.rs` - Display rendering task
+- `src/usb.rs` - USB HID tasks (device + HID)
+
+**Task architecture**:
+- **keyboard_task**: Scans matrix, detects keys, handles mode switching, routes events
+- **usb_hid_task**: Receives key events, sends USB HID reports (numpad mode only)
 - **usb_device_task**: Manages USB device enumeration
-- **display_task**: Receives text updates, renders to OLED
+- **display_task**: Receives display updates, renders to OLED (mode-specific content)
 
 ## Future Enhancements
 
