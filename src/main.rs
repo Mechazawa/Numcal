@@ -4,7 +4,7 @@
 use core::fmt::Write;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{Level, Output};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::USB;
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::usb::{Driver, InterruptHandler};
@@ -27,8 +27,24 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
-// Channel for sending display updates from counter task to display task
-static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, heapless::String<32>, 2> = Channel::new();
+// Keyboard matrix configuration
+const ROWS: usize = 6;
+const COLS: usize = 4;
+const DEBOUNCE_MS: u64 = 10;
+
+// Keymap: maps matrix positions to key names (for reference)
+// Based on README.md layout
+const KEYMAP: [[&str; COLS]; ROWS] = [
+    ["0", "8", "9", "7"],           // Row 0
+    ["1", "5", "6", "4"],           // Row 1
+    ["2", "*", "3", "Q"],           // Row 2
+    ["Enter", "Space", "Down", "Up"],  // Row 3
+    ["Right", "Left", "Bkspc", "Esc"], // Row 4
+    ["Tab", "Caps", "-", "-"],      // Row 5
+];
+
+// Channel for sending display updates from keyboard task to display task
+static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, heapless::String<64>, 2> = Channel::new();
 
 type DisplayType = Ssd1306<
     SPIInterface<
@@ -49,27 +65,108 @@ async fn logger_task(driver: Driver<'static, USB>) {
 }
 
 #[embassy_executor::task]
-async fn counter_task() {
-    log::info!("Counter task started");
+async fn keyboard_task(
+    rows: &'static mut [Output<'static>; ROWS],
+    cols: &'static [Input<'static>; COLS],
+) {
+    log::info!("Keyboard task started");
+
+    // Track key states for debouncing: [row][col] -> (is_pressed, debounce_timer)
+    let mut key_states = [[false; COLS]; ROWS];
+    let mut debounce_timers = [[0u64; COLS]; ROWS];
 
     let sender = DISPLAY_CHANNEL.sender();
 
-    // Send initial message
-    let mut text = heapless::String::<32>::new();
-    write!(&mut text, "Hello OLED!").unwrap();
-    sender.send(text).await;
+    log::info!("Keyboard matrix scanner initialized");
 
-    // Increment counter every 5 seconds
-    let mut counter = 0;
+    // Debug: Check initial column states
+    Timer::after_millis(100).await;
+    for (idx, col) in cols.iter().enumerate() {
+        log::info!("Initial col {} state: high={}", idx, col.is_high());
+    }
+
     loop {
-        Timer::after_secs(5).await;
-        counter += 1;
+        let mut pressed_keys = heapless::Vec::<(usize, usize), 24>::new(); // Max 24 keys (6x4)
+        let mut any_low = false;
 
-        let mut text = heapless::String::<32>::new();
-        write!(&mut text, "Count: {counter}").unwrap();
+        // Scan the matrix
+        for (row_idx, row_pin) in rows.iter_mut().enumerate() {
+            // Drive this row LOW
+            row_pin.set_low();
+
+            // Small delay to let the signal settle
+            Timer::after_micros(10).await;
+
+            // Read all columns
+            for (col_idx, col_pin) in cols.iter().enumerate() {
+                let is_low = col_pin.is_low();
+
+                // Debug logging when we see a LOW column
+                if is_low {
+                    any_low = true;
+                    if debounce_timers[row_idx][col_idx] == 0 {
+                        log::info!("Detected LOW at R{}C{}", row_idx, col_idx);
+                    }
+                }
+
+                // Update debounce logic
+                if is_low != key_states[row_idx][col_idx] {
+                    // State differs from stable state
+                    if debounce_timers[row_idx][col_idx] == 0 {
+                        // Start debounce timer
+                        debounce_timers[row_idx][col_idx] = DEBOUNCE_MS;
+                    } else {
+                        // Decrement timer
+                        debounce_timers[row_idx][col_idx] -= 1;
+
+                        // Timer expired, update stable state
+                        if debounce_timers[row_idx][col_idx] == 0 {
+                            let was_pressed = key_states[row_idx][col_idx];
+                            key_states[row_idx][col_idx] = is_low;
+
+                            if is_low && !was_pressed {
+                                log::info!("Key pressed: R{}C{} ({})", row_idx, col_idx, KEYMAP[row_idx][col_idx]);
+                            } else if !is_low && was_pressed {
+                                log::info!("Key released: R{}C{} ({})", row_idx, col_idx, KEYMAP[row_idx][col_idx]);
+                            }
+                        }
+                    }
+                } else {
+                    // State matches stable state, reset timer
+                    debounce_timers[row_idx][col_idx] = 0;
+                }
+
+                // Collect currently pressed keys
+                if key_states[row_idx][col_idx] {
+                    let _ = pressed_keys.push((row_idx, col_idx));
+                }
+            }
+
+            // Set row back to HIGH
+            row_pin.set_high();
+        }
+
+        // Send display update
+        let mut text = heapless::String::<64>::new();
+        if pressed_keys.is_empty() {
+            write!(&mut text, "No keys").unwrap();
+        } else {
+            for (i, (row, col)) in pressed_keys.iter().enumerate() {
+                if i > 0 {
+                    write!(&mut text, " ").unwrap();
+                }
+                write!(&mut text, "R{}C{}", row, col).unwrap();
+            }
+        }
         sender.send(text).await;
 
-        log::info!("Counter: {counter}");
+        // Debug: Log if we saw any LOW signals
+        if any_low {
+            log::info!("Scan detected {} LOW signal(s)", if pressed_keys.is_empty() { "debouncing" } else { "pressed" });
+        }
+
+        // Scan rate: 1ms between scans
+        Timer::after_millis(1).await;
     }
 }
 
@@ -178,9 +275,34 @@ async fn main(spawner: Spawner) {
 
     log::info!("Display initialization complete");
 
+    // Initialize keyboard matrix GPIO
+    log::info!("Initializing keyboard matrix");
+
+    static ROWS_CELL: StaticCell<[Output<'static>; ROWS]> = StaticCell::new();
+    let rows = ROWS_CELL.init([
+        Output::new(p.PIN_9, Level::High),
+        Output::new(p.PIN_8, Level::High),
+        Output::new(p.PIN_7, Level::High),
+        Output::new(p.PIN_6, Level::High),
+        Output::new(p.PIN_5, Level::High),
+        Output::new(p.PIN_4, Level::High),
+    ]);
+
+    static COLS_CELL: StaticCell<[Input<'static>; COLS]> = StaticCell::new();
+    let cols = COLS_CELL.init([
+        Input::new(p.PIN_26, Pull::Up),
+        Input::new(p.PIN_27, Pull::Up),
+        Input::new(p.PIN_28, Pull::Up),
+        Input::new(p.PIN_29, Pull::Up),
+    ]);
+
+    log::info!("Keyboard matrix initialized");
+
     // Spawn tasks
     spawner.spawn(display_task(display).unwrap());
-    spawner.spawn(counter_task().unwrap());
+    spawner.spawn(keyboard_task(rows, cols).unwrap());
+
+    log::info!("All tasks spawned");
 
     // Main task just keeps the executor alive
     loop {
