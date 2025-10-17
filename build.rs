@@ -4,7 +4,6 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn main() {
-    // Put memory.x in the linker search path
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     File::create(out.join("memory.x"))
         .unwrap()
@@ -12,6 +11,4 @@ fn main() {
         .unwrap();
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=memory.x");
-
-    // Don't add linker args here - they're already in .cargo/config.toml
 }

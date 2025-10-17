@@ -1,12 +1,12 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "picotool load --force --update --verify --execute -t elf "
+runner = "picotool load --force --update -t elf "
 
-# Use custom linker script
+# Use flip-link for stack overflow protection
 rustflags = [
   "-C", "linker=flip-link",
+  "-C", "link-arg=--nmagic",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
-  "-C", "no-vectorize-loops",
 ]
 
 [build]
