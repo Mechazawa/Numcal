@@ -1,3 +1,4 @@
+pub mod calculator;
 pub mod numpad;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format, Default)]

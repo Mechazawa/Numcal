@@ -1,8 +1,37 @@
 use embassy_rp::gpio::{Input, Output};
 use embassy_time::Timer;
 
-use crate::modes::Mode;
+use crate::modes::{calculator::Calculator, Mode};
 use crate::{KeyEvent, COLS, DEBOUNCE_MS, DISPLAY_CHANNEL, KEYMAP, ROWS, USB_CHANNEL};
+
+/// Map matrix position to calculator key character
+fn row_col_to_calc_key(row: usize, col: usize) -> Option<char> {
+    match (row, col) {
+        // Row 1: Clear (Numlock), /, *, -
+        (1, 0) => Some('C'), // Numlock = Clear
+        (1, 1) => Some('/'),
+        (1, 2) => Some('*'),
+        (1, 3) => Some('-'),
+        // Row 2: 7, 8, 9, unused
+        (2, 0) => Some('7'),
+        (2, 1) => Some('8'),
+        (2, 2) => Some('9'),
+        // Row 3: 4, 5, 6, +
+        (3, 0) => Some('4'),
+        (3, 1) => Some('5'),
+        (3, 2) => Some('6'),
+        (3, 3) => Some('+'),
+        // Row 4: 1, 2, 3, unused
+        (4, 0) => Some('1'),
+        (4, 1) => Some('2'),
+        (4, 2) => Some('3'),
+        // Row 5: unused, 0, ., Enter (=)
+        (5, 1) => Some('0'),
+        (5, 2) => Some('.'),
+        (5, 3) => Some('='), // Enter key
+        _ => None,
+    }
+}
 
 #[embassy_executor::task]
 pub async fn keyboard_task(
@@ -17,6 +46,9 @@ pub async fn keyboard_task(
 
     // Current mode
     let mut current_mode = Mode::default();
+
+    // Calculator state
+    let mut calculator = Calculator::new();
 
     // Track if Numlock is held (for mode switching)
     let mut numlock_held = false;
@@ -95,16 +127,35 @@ pub async fn keyboard_task(
                                 } else if row_idx == 1 && col_idx == 0 {
                                     // Numlock pressed
                                     numlock_held = true;
+
+                                    // In calculator mode, also handle as calculator key
+                                    if current_mode == Mode::Calculator {
+                                        if let Some(key_char) = row_col_to_calc_key(row_idx, col_idx) {
+                                            calculator.handle_key(key_char);
+                                        }
+                                    }
                                 } else {
-                                    // Regular key press - send to USB based on mode
-                                    if current_mode == Mode::Numpad {
-                                        usb_sender
-                                            .send(KeyEvent {
-                                                row: row_idx,
-                                                col: col_idx,
-                                                pressed: true,
-                                            })
-                                            .await;
+                                    // Regular key press
+                                    match current_mode {
+                                        Mode::Numpad => {
+                                            // Send to USB in numpad mode
+                                            usb_sender
+                                                .send(KeyEvent {
+                                                    row: row_idx,
+                                                    col: col_idx,
+                                                    pressed: true,
+                                                })
+                                                .await;
+                                        }
+                                        Mode::Calculator => {
+                                            // Handle calculator key press
+                                            if let Some(key_char) = row_col_to_calc_key(row_idx, col_idx) {
+                                                calculator.handle_key(key_char);
+                                            }
+                                        }
+                                        _ => {
+                                            // Other modes - do nothing for now
+                                        }
                                     }
                                 }
                             } else if !is_low && was_pressed {
@@ -149,13 +200,7 @@ pub async fn keyboard_task(
         // Format and send display update based on current mode
         let display_text = match current_mode {
             Mode::Numpad => crate::modes::numpad::format_display(&pressed_keys),
-            Mode::Calculator => {
-                // TODO: Implement calculator display formatting
-                let mut text = heapless::String::<64>::new();
-                use core::fmt::Write;
-                write!(&mut text, "[CALC] TODO").unwrap();
-                text
-            }
+            Mode::Calculator => calculator.format_display(),
             Mode::M2 | Mode::M3 => {
                 let mut text = heapless::String::<64>::new();
                 use core::fmt::Write;

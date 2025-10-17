@@ -38,6 +38,9 @@ heapless = "0.8"
 # USB HID support
 usbd-hid = "0.8"
 
+# Fixed-point arithmetic for calculator
+fixed = "1.28"
+
 # Portable atomic with critical-section for Cortex-M0+
 portable-atomic = { version = "1.11", features = ["critical-section"] }
 critical-section = "1.2"
