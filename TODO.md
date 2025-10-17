@@ -1,20 +1,24 @@
 # NumCal TODO
 
 ## Current Status
-✅ **Working**: Keyboard matrix scanning with OLED display showing pressed keys
+✅ **Working**: USB HID keyboard with OLED display
+- Device appears as "NumCal Keyboard" when plugged in
+- Sends keypresses to computer via USB HID
 - Display shows matrix positions (e.g., "R2C0 R3C1")
 - 10ms software debouncing
 - 4x6 matrix (4 columns, 6 rows)
+- Up to 6 simultaneous keypresses (NKRO)
 
 ## Goals
 
 ### 1. USB HID Keyboard Functionality
-**Status**: ⚠️ Attempted but caused display to go black - needs debugging
+**Status**: ✅ **COMPLETE** - Working!
 
-**Requirements**:
-- Device appears as "NumCal Keyboard" when plugged in
-- Sends actual keypresses to computer via USB HID
-- Only sends keys in Numpad mode (not in Calculator mode)
+**What was implemented**:
+- Device appears as "NumCal Keyboard" when plugged in ✅
+- Sends actual keypresses to computer via USB HID ✅
+- Replaced USB logger with defmt-only logging (RTT)
+- Currently sends ALL keys (mode switching not yet implemented)
 
 **Keymap** (USB HID keycodes):
 - Row 0: Special function keys (reserved for mode switching)
@@ -63,31 +67,24 @@
 
 ## Technical Notes
 
-### Issues Encountered
-1. **USB HID Implementation Crash**:
-   - When USB HID code was added, display went completely black
-   - Possible causes:
-     - USB device initialization interfering with logger_task
-     - Memory/stack overflow from additional tasks
-     - Channel/async issue between tasks
-   - Need to debug carefully, possibly one component at a time
+### Issues Resolved
+1. **USB HID Implementation Crash** - ✅ FIXED
+   - **Root cause**: USB logger task (embassy-usb-logger) was conflicting with USB HID
+   - **Solution**: Removed USB logger and switched to defmt-only logging via RTT
+   - Display now works perfectly alongside USB HID!
 
-### Implementation Strategy (Next Steps)
-1. First, get USB HID working WITHOUT mode switching
-   - Remove logger_task to free up USB peripheral
-   - Use defmt for logging (via RTT with debug probe)
-   - Test that keys send to computer
+### Next Steps
+1. **Implement mode switching** (Goal #2)
+   - Add Mode enum (Numpad, Calculator, M2, M3)
+   - Implement mode switching logic (hold Numlock + Row 0 keys)
+   - Update display to show mode indicator (`[NUM]`, `[CALC]`, etc.)
+   - Filter USB output based on mode (only send in Numpad mode)
+   - Filter display output to hide Numlock and Row 0 keys
 
-2. Then add mode switching
-   - Add Mode enum
-   - Implement mode switching logic
-   - Update display to show mode
-   - Filter keys based on mode
-
-3. Test thoroughly at each step
-   - Verify display still works after each change
-   - Test mode switching
-   - Test USB sending in different modes
+2. **Test mode switching thoroughly**
+   - Verify mode changes work
+   - Verify USB only sends in Numpad mode
+   - Verify display shows correct mode indicator
 
 ### Architecture
 - **keyboard_task**: Scans matrix, detects keys, sends to USB and display channels
