@@ -1,13 +1,16 @@
 # NumCal TODO
 
 ## Current Status
-✅ **Working**: USB HID keyboard with OLED display
+✅ **Working**: USB HID keyboard with mode switching and OLED display
 - Device appears as "NumCal Keyboard" when plugged in
-- Sends keypresses to computer via USB HID
-- Display shows matrix positions (e.g., "R2C0 R3C1")
+- **Mode switching**: Hold Numlock + Row 0 keys to switch between modes
+- **Numpad mode**: Sends keypresses to computer via USB HID
+- **Calculator/M2/M3 modes**: Display only (no USB output)
+- Display shows mode indicator and filtered key presses
 - 10ms software debouncing
 - 4x6 matrix (4 columns, 6 rows)
 - Up to 6 simultaneous keypresses (NKRO)
+- Modular code structure (modes/, keyboard.rs, display.rs, usb.rs)
 
 ## Goals
 
@@ -29,43 +32,44 @@
 - Row 5: nc, 0 (0x62), . (0x63), Enter (0x58)
 
 ### 2. Mode Switching System
-**Status**: ❌ Not implemented yet
+**Status**: ✅ **COMPLETE** - Working!
+
+**What was implemented**:
+- Mode switching via Numlock (R1C0) + Row 0 keys ✅
+- Four modes: Numpad (default), Calculator, M2, M3 ✅
+- USB output filtered: only Numpad mode sends keys to computer ✅
+- Display shows mode indicator: `[NUM]`, `[CALC]`, `[M2]`, `[M3]` ✅
+- Display filters out Numlock and Row 0 keys in Numpad mode ✅
+- Modular code structure for easy mode extension ✅
 
 **Mode Switching**:
 - Hold **Numlock** (R1C0) + press Row 0 keys:
   - **R0C0** → Numpad mode (default)
   - **R0C1** → Calculator mode
-  - **R0C2** → Reserved for future
-  - **R0C3** → Reserved for future
+  - **R0C2** → M2 (reserved for future)
+  - **R0C3** → M3 (reserved for future)
 
 **Modes**:
-1. **Numpad Mode** (default)
+1. **Numpad Mode** (default) - ✅ Working
    - Sends USB HID keycodes to computer
-   - Display shows: `[NUM] R2C0 R3C1`
+   - Display shows: `[NUM] R2C0 R3C1` (filtered)
 
-2. **Calculator Mode**
+2. **Calculator Mode** - ⚠️ Display only, calculator logic not yet implemented
    - Keys NOT sent to computer (display only)
-   - **Numlock** acts as Clear/Reset button:
-     - Press when input exists → Clear current input
-     - Press when no input → Reset calculator (clear result)
-   - Display shows calculator state (see Calculator Mode section below)
+   - Display shows: `[CALC] TODO`
+   - **Numlock** will act as Clear/Reset button (to be implemented)
 
-3. **Reserved Modes** (M2, M3)
+3. **Reserved Modes** (M2, M3) - ✅ Working
    - Placeholders for future functionality
-   - Should be easy to extend
+   - Display shows: `[M2] Reserved` or `[M3] Reserved`
 
 **Display Format**:
-- Always show current mode indicator: `[NUM]`, `[CALC]`, `[M2]`, or `[M3]`
-- Show pressed keys (excluding Numlock and Row 0 mode switch keys)
+- Always shows current mode indicator ✅
+- Filters out Numlock and Row 0 keys in Numpad mode ✅
 - Examples:
   - `[NUM] No keys` - Numpad mode, nothing pressed
   - `[NUM] R2C0 R3C1` - Numpad mode with keys
-  - `[CALC] R2C0` - Calculator mode with key
-
-### 3. Key Filtering
-- Numlock (R1C0) should not appear as a "pressed key" in display
-- Row 0 keys should not appear as "pressed keys" in display
-- These keys are only for mode switching
+  - `[CALC] TODO` - Calculator mode (logic pending)
 
 ## Technical Notes
 
@@ -76,17 +80,12 @@
    - Display now works perfectly alongside USB HID!
 
 ### Next Steps
-1. **Implement mode switching** (Goal #2)
-   - Add Mode enum (Numpad, Calculator, M2, M3)
-   - Implement mode switching logic (hold Numlock + Row 0 keys)
-   - Update display to show mode indicator (`[NUM]`, `[CALC]`, etc.)
-   - Filter USB output based on mode (only send in Numpad mode)
-   - Filter display output to hide Numlock and Row 0 keys
-
-2. **Test mode switching thoroughly**
-   - Verify mode changes work
-   - Verify USB only sends in Numpad mode
-   - Verify display shows correct mode indicator
+1. **Implement Calculator Mode functionality** (Goal #3 - see Future Enhancements section)
+   - Implement fixed-point arithmetic engine
+   - Build expression parser/evaluator
+   - Implement Numlock as Clear/Reset button in Calculator mode
+   - Create multi-line display layout (input, result, history)
+   - Handle errors (div/0, overflow, invalid input)
 
 ### Architecture
 
