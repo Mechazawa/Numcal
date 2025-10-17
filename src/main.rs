@@ -1,7 +1,11 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write;
+mod display;
+mod keyboard;
+mod modes;
+mod usb;
+
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
@@ -11,19 +15,13 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Timer;
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{HidReaderWriter, State};
 use embassy_usb::{Builder, Config as UsbConfig};
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
-use embedded_graphics::mono_font::ascii::FONT_6X10;
-use embedded_graphics::mono_font::MonoTextStyleBuilder;
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
-use embedded_graphics::text::{Baseline, Text};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use ssd1306::prelude::*;
 use ssd1306::Ssd1306;
 use static_cell::StaticCell;
+use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -61,262 +59,6 @@ static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, heapless::String<64>, 2> = C
 // Channel for sending key events from keyboard task to USB HID task
 static USB_CHANNEL: Channel<ThreadModeRawMutex, KeyEvent, 8> = Channel::new();
 
-type DisplayType = Ssd1306<
-    SPIInterface<
-        ExclusiveDevice<
-            Spi<'static, embassy_rp::peripherals::SPI1, embassy_rp::spi::Blocking>,
-            Output<'static>,
-            embedded_hal_bus::spi::NoDelay,
-        >,
-        Output<'static>,
-    >,
-    DisplaySize128x64,
-    ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>,
->;
-
-// Empty request handler for HID
-struct MyRequestHandler {}
-
-impl RequestHandler for MyRequestHandler {
-    fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
-        defmt::info!("Get report for {:?}", id);
-        None
-    }
-
-    fn set_report(&mut self, id: ReportId, data: &[u8]) -> embassy_usb::control::OutResponse {
-        defmt::info!("Set report for {:?}: {:?}", id, data);
-        embassy_usb::control::OutResponse::Accepted
-    }
-
-    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
-        defmt::info!("Set idle rate for {:?} to {:?}", id, dur);
-    }
-
-    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
-        defmt::info!("Get idle rate for {:?}", id);
-        None
-    }
-}
-
-#[embassy_executor::task]
-async fn usb_device_task(mut usb: embassy_usb::UsbDevice<'static, Driver<'static, USB>>) {
-    usb.run().await;
-}
-
-#[embassy_executor::task]
-async fn usb_hid_task(
-    mut writer: HidReaderWriter<'static, Driver<'static, USB>, 1, 8>,
-) {
-    let usb_sender = USB_CHANNEL.receiver();
-
-    // Track currently pressed keys (max 6 keys for NKRO)
-    let mut pressed_keys: heapless::Vec<u8, 6> = heapless::Vec::new();
-
-    defmt::info!("USB HID task started");
-
-    loop {
-        // Wait for key event
-        let event = usb_sender.receive().await;
-        defmt::info!("USB HID: Key event R{}C{} pressed={}", event.row, event.col, event.pressed);
-
-        let keycode = KEYMAP[event.row][event.col];
-
-        // Skip if keycode is 0x00 (unused key)
-        if keycode == 0x00 {
-            continue;
-        }
-
-        // Update pressed keys list
-        if event.pressed {
-            // Add key if not already in list and there's space
-            if !pressed_keys.contains(&keycode) && pressed_keys.len() < 6 {
-                let _ = pressed_keys.push(keycode);
-                defmt::info!("USB HID: Added keycode 0x{:02x}, now {} keys pressed", keycode, pressed_keys.len());
-            }
-        } else {
-            // Remove key from list
-            if let Some(pos) = pressed_keys.iter().position(|&k| k == keycode) {
-                pressed_keys.swap_remove(pos);
-                defmt::info!("USB HID: Removed keycode 0x{:02x}, now {} keys pressed", keycode, pressed_keys.len());
-            }
-        }
-
-        // Build HID report
-        let mut report = KeyboardReport {
-            modifier: 0,
-            reserved: 0,
-            leds: 0,
-            keycodes: [0u8; 6],
-        };
-
-        // Copy pressed keys into report
-        for (i, &keycode) in pressed_keys.iter().enumerate() {
-            report.keycodes[i] = keycode;
-        }
-
-        defmt::info!("USB HID: Sending report with {} keys", pressed_keys.len());
-
-        // Send report
-        match writer.write_serialize(&report).await {
-            Ok(()) => {
-                defmt::info!("USB HID: Report sent successfully");
-            }
-            Err(e) => {
-                defmt::error!("USB HID: Failed to send report: {:?}", e);
-            }
-        }
-    }
-}
-
-#[embassy_executor::task]
-async fn keyboard_task(
-    rows: &'static mut [Output<'static>; ROWS],
-    cols: &'static [Input<'static>; COLS],
-) {
-    defmt::info!("Keyboard task started");
-
-    // Track key states for debouncing: [row][col] -> (is_pressed, debounce_timer)
-    let mut key_states = [[false; COLS]; ROWS];
-    let mut debounce_timers = [[0u64; COLS]; ROWS];
-
-    let display_sender = DISPLAY_CHANNEL.sender();
-    let usb_sender = USB_CHANNEL.sender();
-
-    defmt::info!("Keyboard matrix scanner initialized");
-
-    // Debug: Check initial column states
-    Timer::after_millis(100).await;
-    for (idx, col) in cols.iter().enumerate() {
-        defmt::info!("Initial col {} state: high={}", idx, col.is_high());
-    }
-
-    loop {
-        let mut pressed_keys = heapless::Vec::<(usize, usize), 24>::new(); // Max 24 keys (6x4)
-
-        // Scan the matrix
-        for (row_idx, row_pin) in rows.iter_mut().enumerate() {
-            // Drive this row LOW
-            row_pin.set_low();
-
-            // Small delay to let the signal settle
-            Timer::after_micros(10).await;
-
-            // Read all columns
-            for (col_idx, col_pin) in cols.iter().enumerate() {
-                let is_low = col_pin.is_low();
-
-                // Debug logging when we see a LOW column (only on first detection)
-                if is_low && debounce_timers[row_idx][col_idx] == 0 && !key_states[row_idx][col_idx] {
-                    defmt::trace!("Detected LOW at R{}C{}", row_idx, col_idx);
-                }
-
-                // Update debounce logic
-                if is_low != key_states[row_idx][col_idx] {
-                    // State differs from stable state
-                    if debounce_timers[row_idx][col_idx] == 0 {
-                        // Start debounce timer
-                        debounce_timers[row_idx][col_idx] = DEBOUNCE_MS;
-                    } else {
-                        // Decrement timer
-                        debounce_timers[row_idx][col_idx] -= 1;
-
-                        // Timer expired, update stable state
-                        if debounce_timers[row_idx][col_idx] == 0 {
-                            let was_pressed = key_states[row_idx][col_idx];
-                            key_states[row_idx][col_idx] = is_low;
-
-                            if is_low && !was_pressed {
-                                defmt::info!("Key pressed: R{}C{} (keycode=0x{:02x})", row_idx, col_idx, KEYMAP[row_idx][col_idx]);
-                                // Send key press event to USB
-                                usb_sender.send(KeyEvent {
-                                    row: row_idx,
-                                    col: col_idx,
-                                    pressed: true,
-                                }).await;
-                            } else if !is_low && was_pressed {
-                                defmt::info!("Key released: R{}C{} (keycode=0x{:02x})", row_idx, col_idx, KEYMAP[row_idx][col_idx]);
-                                // Send key release event to USB
-                                usb_sender.send(KeyEvent {
-                                    row: row_idx,
-                                    col: col_idx,
-                                    pressed: false,
-                                }).await;
-                            }
-                        }
-                    }
-                } else {
-                    // State matches stable state, reset timer
-                    debounce_timers[row_idx][col_idx] = 0;
-                }
-
-                // Collect currently pressed keys
-                if key_states[row_idx][col_idx] {
-                    let _ = pressed_keys.push((row_idx, col_idx));
-                }
-            }
-
-            // Set row back to HIGH
-            row_pin.set_high();
-        }
-
-        // Send display update
-        let mut text = heapless::String::<64>::new();
-        if pressed_keys.is_empty() {
-            write!(&mut text, "No keys").unwrap();
-        } else {
-            for (i, (row, col)) in pressed_keys.iter().enumerate() {
-                if i > 0 {
-                    write!(&mut text, " ").unwrap();
-                }
-                write!(&mut text, "R{row}C{col}").unwrap();
-            }
-        }
-        display_sender.send(text).await;
-
-        // Scan rate: 1ms between scans
-        Timer::after_millis(1).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn display_task(display: &'static mut DisplayType) {
-    defmt::info!("Display rendering task started");
-
-    let receiver = DISPLAY_CHANNEL.receiver();
-
-    // Create text style
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
-
-    // Wait for messages and render them
-    loop {
-        let text = receiver.receive().await;
-        defmt::trace!("Rendering: {}", text.as_str());
-
-        // Clear display
-        display.clear(BinaryColor::Off).unwrap();
-
-        // Clear the rightmost columns explicitly to remove gibberish
-        Rectangle::new(Point::new(124, 0), Size::new(4, 64))
-            .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-            .draw(display)
-            .unwrap();
-
-        // Draw text
-        Text::with_baseline(text.as_str(), Point::new(5, 38), text_style, Baseline::Middle)
-            .draw(display)
-            .unwrap();
-
-        // Flush to display
-        match display.flush() {
-            Ok(_) => defmt::trace!("Display updated successfully"),
-            Err(_) => defmt::error!("Display flush failed!"),
-        }
-    }
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
@@ -339,7 +81,7 @@ async fn main(spawner: Spawner) {
     static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
     static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
     static HID_STATE: StaticCell<State> = StaticCell::new();
-    static REQUEST_HANDLER: StaticCell<MyRequestHandler> = StaticCell::new();
+    static REQUEST_HANDLER: StaticCell<usb::MyRequestHandler> = StaticCell::new();
 
     let mut builder = Builder::new(
         driver,
@@ -353,7 +95,7 @@ async fn main(spawner: Spawner) {
     // Create HID class
     let hid_config = embassy_usb::class::hid::Config {
         report_descriptor: KeyboardReport::desc(),
-        request_handler: Some(REQUEST_HANDLER.init(MyRequestHandler {})),
+        request_handler: Some(REQUEST_HANDLER.init(usb::MyRequestHandler {})),
         poll_ms: 60,
         max_packet_size: 8,
     };
@@ -366,8 +108,8 @@ async fn main(spawner: Spawner) {
     defmt::info!("USB device configured as NumCal Keyboard");
 
     // Spawn USB tasks
-    spawner.spawn(usb_device_task(usb).unwrap());
-    spawner.spawn(usb_hid_task(hid).unwrap());
+    spawner.spawn(usb::usb_device_task(usb).unwrap());
+    spawner.spawn(usb::usb_hid_task(hid).unwrap());
 
     defmt::info!("Initializing OLED display on SPI1");
     defmt::info!("Pins: CLK=14, MOSI=15, CS=10, DC=13, RST=3");
@@ -404,7 +146,7 @@ async fn main(spawner: Spawner) {
 
     // Initialize the SSD1306 driver (128x64)
     defmt::info!("Creating display driver (128x64)...");
-    static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
+    static DISPLAY: StaticCell<display::DisplayType> = StaticCell::new();
     let display = DISPLAY.init(
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode(),
@@ -448,8 +190,8 @@ async fn main(spawner: Spawner) {
     defmt::info!("Keyboard matrix initialized");
 
     // Spawn tasks
-    spawner.spawn(display_task(display).unwrap());
-    spawner.spawn(keyboard_task(rows, cols).unwrap());
+    spawner.spawn(display::display_task(display).unwrap());
+    spawner.spawn(keyboard::keyboard_task(rows, cols).unwrap());
 
     defmt::info!("All tasks spawned - NumCal ready!");
 
