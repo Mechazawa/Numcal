@@ -256,7 +256,7 @@ impl KeyboardState {
         // Check if Numlock released
         if key.is_numlock() {
             self.numlock_held = false;
-            return;
+            // return;
         }
 
         // In numpad mode, send key release to USB
