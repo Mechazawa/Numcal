@@ -197,6 +197,24 @@ pub async fn keyboard_task(
             row_pin.set_high();
         }
 
+        // Check for bootsel reboot: all 4 top row buttons (R0C0, R0C1, R0C2, R0C3) pressed
+        let top_row_pressed = (0..4).all(|col| key_states[0][col]);
+        if top_row_pressed {
+            defmt::info!("All top row buttons pressed - rebooting to bootsel mode!");
+
+            // Send notification to display before rebooting
+            let mut bootsel_text = heapless::String::<64>::new();
+            use core::fmt::Write;
+            write!(&mut bootsel_text, "BOOTSEL REBOOT").unwrap();
+            display_sender.send(bootsel_text).await;
+
+            // Small delay to let display update
+            Timer::after_millis(100).await;
+
+            // Reboot to bootsel mode
+            embassy_rp::rom_data::reset_to_usb_boot(0, 0);
+        }
+
         // Format and send display update based on current mode
         let display_text = match current_mode {
             Mode::Numpad => crate::modes::numpad::format_display(&pressed_keys),
