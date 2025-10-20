@@ -20,17 +20,10 @@ pub fn format_display(pressed_keys: &[(usize, usize)]) -> heapless::String<64> {
     let mut text = heapless::String::<64>::new();
     write!(&mut text, "[NUM] ").unwrap();
 
-    // Filter out Numlock (R1C0) and Row 0 keys
-    let filtered_keys: heapless::Vec<(usize, usize), 24> = pressed_keys
-        .iter()
-        .filter(|(row, col)| *row != 0 && !(*row == 1 && *col == 0))
-        .copied()
-        .collect();
-
-    if filtered_keys.is_empty() {
+    if pressed_keys.is_empty() {
         write!(&mut text, "No keys").unwrap();
     } else {
-        for (i, (row, col)) in filtered_keys.iter().enumerate() {
+        for (i, (row, col)) in pressed_keys.iter().enumerate() {
             if i > 0 {
                 write!(&mut text, " ").unwrap();
             }
