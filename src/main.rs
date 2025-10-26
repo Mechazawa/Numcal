@@ -4,6 +4,7 @@
 mod tasks;
 
 use embassy_executor::Spawner;
+use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_time::Timer;
@@ -15,7 +16,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
+    let p = embassy_rp::init(Config::default());
 
     defmt::info!("NumCal starting...");
 
@@ -62,13 +63,12 @@ async fn main(spawner: Spawner) {
 
     // Initialize the display
     defmt::info!("Initializing display hardware...");
-    match display.init() {
-        Ok(_) => defmt::info!("Display initialized successfully!"),
-        Err(_) => {
-            defmt::error!("Display initialization failed!");
-            loop {
-                Timer::after_secs(1).await;
-            }
+    if let Ok(()) = display.init() {
+        defmt::info!("Display initialized successfully!");
+    } else {
+        defmt::error!("Display initialization failed!");
+        loop {
+            Timer::after_secs(1).await;
         }
     }
 

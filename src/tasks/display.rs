@@ -1,3 +1,4 @@
+use core::fmt::Write;
 use embassy_rp::gpio::Output;
 use embassy_rp::spi::Spi;
 use embassy_time::{Duration, Instant, Timer};
@@ -47,7 +48,6 @@ pub async fn display_task(display: &'static mut DisplayType) {
 
         // Format as hh:mm:ss
         let mut time_str: heapless::String<16> = heapless::String::new();
-        use core::fmt::Write;
         write!(&mut time_str, "{hours:02}:{minutes:02}:{seconds:02}").unwrap();
 
         defmt::trace!("Uptime: {}", time_str.as_str());
@@ -66,9 +66,10 @@ pub async fn display_task(display: &'static mut DisplayType) {
         .unwrap();
 
         // Flush to display
-        match display.flush() {
-            Ok(_) => defmt::trace!("Display updated successfully"),
-            Err(_) => defmt::error!("Display flush failed!"),
+        if let Ok(()) = display.flush() {
+            defmt::trace!("Display updated successfully");
+        } else {
+            defmt::error!("Display flush failed!");
         }
 
         // Update every second
