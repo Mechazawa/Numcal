@@ -42,7 +42,7 @@ cargo run --release
 
 ### Embassy Framework Requirements
 - **MUST** include `critical-section-impl` feature in embassy-rp - Cortex-M0+ lacks native atomics
-- Boot2 bootloader is statically embedded via `BOOT2` constant in main.rs using `rp2040-boot2` crate
+- Boot2 bootloader is handled internally by embassy-rp - no manual declaration needed
 - `memory.x` defines BOOT2, FLASH, and RAM regions - do NOT duplicate linker args in build.rs
 
 ### Dependency Compatibility
@@ -73,39 +73,18 @@ To change pins, modify spawner calls in `main()` function (src/main.rs:80-89).
 ## Architecture
 
 ### Async Task Structure
-The firmware uses Embassy's cooperative multitasking with three independent tasks:
+The firmware uses Embassy's cooperative multitasking. Currently implemented:
 
-1. **keyboard_task** (src/main.rs:109-202) - Matrix scanner with debouncing
-   - Scans 4x6 matrix by driving rows LOW sequentially
-   - 10ms software debounce (configurable via `DEBOUNCE_MS` constant)
-   - Outputs key press logs via defmt
-
-2. **display_task** (src/main.rs:210-272) - OLED management
-   - Initializes SSD1305 via SPI at 8MHz
+1. **display_task** (src/tasks/display.rs) - Uptime counter display
+   - Shows elapsed time since boot in hh:mm:ss format
+   - Uses SSD1306 128x64 OLED via SPI1 at 8MHz
    - Uses ssd1306 driver with ExclusiveDevice wrapper
-   - Currently displays static "Hello World" text
-
-3. **usb_task** (src/main.rs:282-378) - USB HID keyboard
-   - Creates USB device (VID: 0x16c0, PID: 0x27dd)
-   - Sends HID keyboard reports
-   - Currently sends empty reports (integration with keyboard_task pending)
+   - Updates every second using embassy_time::Timer
+   - Uses embedded_graphics for text rendering
 
 Tasks are spawned in main() and run concurrently. The main task keeps the executor alive with a 60-second sleep loop.
 
-### Keymap Configuration
-The `KEYMAP` constant (src/main.rs:45-52) maps matrix positions [row][col] to USB HID keycodes. It's a 2D array indexed by row then column. Use 0x00 for unused keys.
-
-Example: `KEYMAP[0][0] = 0x27` maps row 0, col 0 to HID keycode 0x27 (numpad 0).
-
-Reference: https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf
-
 ## Common Development Tasks
-
-### Customizing the Keymap
-Edit the `KEYMAP` constant in src/main.rs:45-52. Each byte is a USB HID keycode.
-
-### Adjusting Debounce Time
-Modify `DEBOUNCE_MS` constant in src/main.rs:41 (default: 10ms).
 
 ### Viewing Logs
 Logs use `defmt` with RTT transport. With a debug probe:
@@ -123,12 +102,6 @@ Target size: ~1.2MB (fits in 2MB flash). Release profile uses:
 
 ## Important Implementation Notes
 
-### Embassy Boot2 Integration
-- The RP2040 requires a 256-byte boot2 bootloader in the first flash sector
-- This is provided via `pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080`
-- W25Q080 variant matches most RP2040 boards' flash chips
-- The linker script places this in the BOOT2 memory region
-
 ### SPI Device Wrapping Pattern
 Embassy-rp's SPI implements embedded-hal 1.0's `SpiBus` trait but NOT `SpiDevice`. Display drivers need `SpiDevice`, so wrap with:
 ```rust
@@ -143,17 +116,20 @@ let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
 
 ## Known Issues and Gotchas
 
-- Keyboard and USB tasks are currently commented out in main() (src/main.rs:83-89)
-- USB task sends empty HID reports - needs channel integration with keyboard_task
-- Inline-threshold compiler flag is deprecated - removed from rustflags
-- The keyboard_task and usb_task need a channel for communication (not yet implemented)
+- Only display task is currently implemented - keyboard and USB tasks not yet added
+- Reference implementation code is in `reference/` directory for future feature development
 
 ## Project Structure
 
 ```
-src/main.rs          - All firmware code (378 lines)
-Cargo.toml           - Dependencies with embassy-rp features
-memory.x             - RP2040 memory layout (BOOT2, FLASH, RAM)
-build.rs             - Copies memory.x to build output
-.cargo/config.toml   - Target config, runner (picotool), rustflags
+src/
+  main.rs                - Hardware initialization and task spawning
+  tasks/
+    mod.rs               - Task module declarations
+    display.rs           - Display task with uptime counter
+reference/               - Previous implementation for reference
+Cargo.toml               - Dependencies with embassy-rp features
+memory.x                 - RP2040 memory layout (BOOT2, FLASH, RAM)
+build.rs                 - Copies memory.x to build output
+.cargo/config.toml       - Target config, runner (picotool), rustflags
 ```
