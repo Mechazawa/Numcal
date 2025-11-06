@@ -15,6 +15,7 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Timer;
+use embassy_usb::class::cdc_acm::{CdcAcmClass, State as CdcState};
 use embassy_usb::class::hid::{HidReaderWriter, State};
 use embassy_usb::{Builder, Config as UsbConfig};
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -63,7 +64,7 @@ static USB_CHANNEL: Channel<ThreadModeRawMutex, KeyEvent, 8> = Channel::new();
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    defmt::info!("NumCal starting...");
+    log::info!("NumCal starting...");
 
     // Set up USB driver
     let driver = Driver::new(p.USB, Irqs);
@@ -81,6 +82,7 @@ async fn main(spawner: Spawner) {
     static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
     static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
     static HID_STATE: StaticCell<State> = StaticCell::new();
+    static CDC_STATE: StaticCell<CdcState> = StaticCell::new();
     static REQUEST_HANDLER: StaticCell<usb::MyRequestHandler> = StaticCell::new();
 
     let mut builder = Builder::new(
@@ -102,50 +104,54 @@ async fn main(spawner: Spawner) {
 
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, HID_STATE.init(State::new()), hid_config);
 
+    // Create CDC-ACM class for USB serial logging
+    let cdc = CdcAcmClass::new(&mut builder, CDC_STATE.init(CdcState::new()), 64);
+
     // Build the USB device
     let usb = builder.build();
 
-    defmt::info!("USB device configured as NumCal Keyboard");
+    log::info!("USB device configured as NumCal Keyboard");
 
     // Spawn USB tasks
     spawner.spawn(usb::usb_device_task(usb).unwrap());
     spawner.spawn(usb::usb_hid_task(hid).unwrap());
+    spawner.spawn(logger_task(cdc).unwrap());
 
-    defmt::info!("Initializing OLED display on SPI1");
-    defmt::info!("Pins: CLK=14, MOSI=15, CS=10, DC=13, RST=3");
+    log::info!("Initializing OLED display on SPI1");
+    log::info!("Pins: CLK=14, MOSI=15, CS=10, DC=13, RST=3");
 
     // Configure SPI for the display
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 8_000_000; // 8 MHz
-    defmt::info!("SPI frequency: 8 MHz");
+    log::info!("SPI frequency: 8 MHz");
 
     let spi = Spi::new_blocking_txonly(p.SPI1, p.PIN_14, p.PIN_15, spi_config);
-    defmt::info!("SPI initialized");
+    log::info!("SPI initialized");
 
     // Configure control pins
     let dc_pin = Output::new(p.PIN_13, Level::Low);
     let mut rst_pin = Output::new(p.PIN_3, Level::High);
     let cs_pin = Output::new(p.PIN_10, Level::High);
-    defmt::info!("Control pins configured");
+    log::info!("Control pins configured");
 
     // Reset the display
-    defmt::info!("Resetting display...");
+    log::info!("Resetting display...");
     rst_pin.set_low();
     Timer::after_millis(10).await;
     rst_pin.set_high();
     Timer::after_millis(10).await;
-    defmt::info!("Reset complete");
+    log::info!("Reset complete");
 
     // Wrap SPI with ExclusiveDevice
     let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
-    defmt::info!("SPI device wrapped");
+    log::info!("SPI device wrapped");
 
     // Create the display interface
     let interface = ssd1306::prelude::SPIInterface::new(spi_device, dc_pin);
-    defmt::info!("Display interface created");
+    log::info!("Display interface created");
 
     // Initialize the SSD1306 driver (128x64)
-    defmt::info!("Creating display driver (128x64)...");
+    log::info!("Creating display driver (128x64)...");
     static DISPLAY: StaticCell<display::DisplayType> = StaticCell::new();
     let display = DISPLAY.init(
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
@@ -153,21 +159,21 @@ async fn main(spawner: Spawner) {
     );
 
     // Initialize the display
-    defmt::info!("Initializing display hardware...");
+    log::info!("Initializing display hardware...");
     match display.init() {
-        Ok(_) => defmt::info!("Display initialized successfully!"),
+        Ok(_) => log::info!("Display initialized successfully!"),
         Err(_) => {
-            defmt::error!("Display initialization failed!");
+            log::error!("Display initialization failed!");
             loop {
                 Timer::after_secs(1).await;
             }
         }
     }
 
-    defmt::info!("Display initialization complete");
+    log::info!("Display initialization complete");
 
     // Initialize keyboard matrix GPIO
-    defmt::info!("Initializing keyboard matrix");
+    log::info!("Initializing keyboard matrix");
 
     static ROWS_CELL: StaticCell<[Output<'static>; ROWS]> = StaticCell::new();
     let rows = ROWS_CELL.init([
@@ -187,16 +193,21 @@ async fn main(spawner: Spawner) {
         Input::new(p.PIN_29, Pull::Up),
     ]);
 
-    defmt::info!("Keyboard matrix initialized");
+    log::info!("Keyboard matrix initialized");
 
     // Spawn tasks
     spawner.spawn(display::display_task(display).unwrap());
     spawner.spawn(keyboard::keyboard_task(rows, cols).unwrap());
 
-    defmt::info!("All tasks spawned - NumCal ready!");
+    log::info!("All tasks spawned - NumCal ready!");
 
     // Main task just keeps the executor alive
     loop {
         Timer::after_secs(60).await;
     }
+}
+
+#[embassy_executor::task]
+async fn logger_task(class: CdcAcmClass<'static, Driver<'static, USB>>) {
+    embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class).await;
 }

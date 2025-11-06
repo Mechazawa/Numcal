@@ -10,6 +10,7 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features
 embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
+embassy-usb-logger = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 
@@ -23,6 +24,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 # Logging
 defmt = "0.3"
 defmt-rtt = "0.4"
+log = "0.4"
 
 # Display drivers
 ssd1306 = "0.10"

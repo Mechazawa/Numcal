@@ -73,22 +73,28 @@ To change pins, modify spawner calls in `main()` function (src/main.rs:80-89).
 ## Architecture
 
 ### Async Task Structure
-The firmware uses Embassy's cooperative multitasking with three independent tasks:
+The firmware uses Embassy's cooperative multitasking with independent tasks:
 
-1. **keyboard_task** (src/main.rs:109-202) - Matrix scanner with debouncing
+1. **keyboard_task** (src/keyboard.rs) - Matrix scanner with debouncing
    - Scans 4x6 matrix by driving rows LOW sequentially
    - 10ms software debounce (configurable via `DEBOUNCE_MS` constant)
-   - Outputs key press logs via defmt
+   - Sends key events to USB and display tasks via channels
 
-2. **display_task** (src/main.rs:210-272) - OLED management
-   - Initializes SSD1305 via SPI at 8MHz
+2. **display_task** (src/display.rs) - OLED management
+   - Renders text to SSD1305 OLED via SPI at 8MHz
    - Uses ssd1306 driver with ExclusiveDevice wrapper
-   - Currently displays static "Hello World" text
+   - Receives display updates via channel
 
-3. **usb_task** (src/main.rs:282-378) - USB HID keyboard
-   - Creates USB device (VID: 0x16c0, PID: 0x27dd)
-   - Sends HID keyboard reports
-   - Currently sends empty reports (integration with keyboard_task pending)
+3. **usb_device_task** (src/usb.rs) - USB device manager
+   - Runs the USB device stack
+
+4. **usb_hid_task** (src/usb.rs) - USB HID keyboard
+   - Creates USB HID keyboard interface (VID: 0x16c0, PID: 0x27dd)
+   - Sends HID keyboard reports based on key events
+
+5. **logger_task** (src/main.rs) - USB serial logging
+   - Provides USB CDC-ACM serial port for logging
+   - Outputs `log` crate messages to serial console
 
 Tasks are spawned in main() and run concurrently. The main task keeps the executor alive with a 60-second sleep loop.
 
@@ -108,12 +114,20 @@ Edit the `KEYMAP` constant in src/main.rs:45-52. Each byte is a USB HID keycode.
 Modify `DEBOUNCE_MS` constant in src/main.rs:41 (default: 10ms).
 
 ### Viewing Logs
-Logs use `defmt` with RTT transport. With a debug probe:
-```bash
-cargo run --release  # Logs appear in terminal
-```
+Logs use the `log` crate with USB serial transport via `embassy-usb-logger`. No debug probe required!
 
-Without a probe, logs are not visible (use picotool method for flashing only).
+**Viewing logs:**
+1. Flash the firmware: `cargo run --release`
+2. Device enumerates as both a USB HID keyboard and USB serial port
+3. Connect to serial port (typically `/dev/tty.usbmodem*` on macOS):
+   ```bash
+   screen /dev/tty.usbmodem* 115200
+   # or
+   minicom -D /dev/tty.usbmodem*
+   ```
+
+Logs use standard `log` macros: `log::info!()`, `log::error!()`, `log::debug!()`, etc.
+Log level is configured in `logger_task()` (default: `Info`).
 
 ### Binary Size
 Target size: ~1.2MB (fits in 2MB flash). Release profile uses:
@@ -143,17 +157,30 @@ let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
 
 ## Known Issues and Gotchas
 
-- Keyboard and USB tasks are currently commented out in main() (src/main.rs:83-89)
-- USB task sends empty HID reports - needs channel integration with keyboard_task
-- Inline-threshold compiler flag is deprecated - removed from rustflags
-- The keyboard_task and usb_task need a channel for communication (not yet implemented)
+- The firmware uses USB composite device (HID + CDC-ACM). Some older USB hosts may have issues with composite devices.
+- USB serial logs only appear after the USB device is fully enumerated (takes ~1-2 seconds after reset).
+- Early boot logs (before USB is initialized) are not visible. Consider keeping `defmt` for probe-based debugging if needed.
 
 ## Project Structure
 
 ```
-src/main.rs          - All firmware code (378 lines)
+src/main.rs          - Main entry point, USB setup, logger task
+src/keyboard.rs      - Keyboard matrix scanning and state management
+src/display.rs       - OLED display rendering task
+src/usb.rs           - USB HID keyboard tasks
+src/modes/           - Keyboard modes (numpad, calculator, etc.)
 Cargo.toml           - Dependencies with embassy-rp features
 memory.x             - RP2040 memory layout (BOOT2, FLASH, RAM)
 build.rs             - Copies memory.x to build output
 .cargo/config.toml   - Target config, runner (picotool), rustflags
 ```
+
+## Logging Implementation
+
+The firmware uses `embassy-usb-logger` to provide USB serial logging without requiring a debug probe:
+
+- **Logger crate**: Uses standard `log` crate macros (`log::info!()`, `log::error!()`, etc.)
+- **USB CDC-ACM**: Creates a second USB interface (serial port) alongside the HID keyboard
+- **Composite device**: Both HID keyboard and serial port work simultaneously
+- **Buffer size**: 1024 bytes (configurable in `logger_task()`)
+- **Log level**: Default is `Info` (configurable in `logger_task()`)

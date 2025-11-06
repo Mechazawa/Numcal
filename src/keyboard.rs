@@ -2,7 +2,7 @@ use embassy_rp::gpio::{Input, Output};
 use embassy_sync::channel::Sender;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_time::Timer;
-
+use log::info;
 use crate::modes::{calculator::Calculator, Mode};
 use crate::{KeyEvent, COLS, DEBOUNCE_MS, KEYMAP, ROWS};
 
@@ -120,7 +120,7 @@ impl KeyMatrix {
                             key.is_pressed = is_low;
 
                             if is_low && !was_pressed {
-                                defmt::info!(
+                                info!(
                                     "Key pressed: R{}C{} (keycode=0x{:02x})",
                                     row_idx,
                                     col_idx,
@@ -128,7 +128,7 @@ impl KeyMatrix {
                                 );
                                 let _ = events.presses.push(*key);
                             } else if !is_low && was_pressed {
-                                defmt::info!(
+                                info!(
                                     "Key released: R{}C{} (keycode=0x{:02x})",
                                     row_idx,
                                     col_idx,
@@ -282,7 +282,7 @@ impl KeyboardState {
         };
 
         if new_mode != self.current_mode {
-            defmt::info!("Mode switched to: {:?}", new_mode);
+            info!("Mode switched to: {:?}", new_mode);
             self.current_mode = new_mode;
         }
     }
@@ -307,7 +307,7 @@ pub async fn keyboard_task(
     rows: &'static mut [Output<'static>; ROWS],
     cols: &'static [Input<'static>; COLS],
 ) {
-    defmt::info!("Keyboard task started");
+    info!("Keyboard task started");
 
     // Initialize state
     let mut matrix = KeyMatrix::new();
@@ -316,12 +316,12 @@ pub async fn keyboard_task(
     let display_sender = crate::DISPLAY_CHANNEL.sender();
     let usb_sender = crate::USB_CHANNEL.sender();
 
-    defmt::info!("Keyboard matrix scanner initialized");
+    info!("Keyboard matrix scanner initialized");
 
     // Debug: Check initial column states
     Timer::after_millis(100).await;
     for (idx, col) in cols.iter().enumerate() {
-        defmt::info!("Initial col {} state: high={}", idx, col.is_high());
+        info!("Initial col {} state: high={}", idx, col.is_high());
     }
 
     loop {
@@ -340,7 +340,7 @@ pub async fn keyboard_task(
 
         // Check for bootsel reboot: all 4 top row keys pressed
         if matrix.all_top_row_pressed() {
-            defmt::info!("All top row buttons pressed - rebooting to bootsel mode!");
+            info!("All top row buttons pressed - rebooting to bootsel mode!");
 
             let mut bootsel_text = heapless::String::<64>::new();
             use core::fmt::Write;

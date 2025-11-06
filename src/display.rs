@@ -27,7 +27,7 @@ pub type DisplayType = Ssd1306<
 
 #[embassy_executor::task]
 pub async fn display_task(display: &'static mut DisplayType) {
-    defmt::info!("Display rendering task started");
+    log::info!("Display rendering task started");
 
     let receiver = DISPLAY_CHANNEL.receiver();
 
@@ -40,7 +40,7 @@ pub async fn display_task(display: &'static mut DisplayType) {
     // Wait for messages and render them
     loop {
         let text = receiver.receive().await;
-        defmt::trace!("Rendering: {}", text.as_str());
+        log::trace!("Rendering: {}", text.as_str());
 
         // Clear display
         display.clear(BinaryColor::Off).unwrap();
@@ -58,8 +58,8 @@ pub async fn display_task(display: &'static mut DisplayType) {
 
         // Flush to display
         match display.flush() {
-            Ok(_) => defmt::trace!("Display updated successfully"),
-            Err(_) => defmt::error!("Display flush failed!"),
+            Ok(_) => log::trace!("Display updated successfully"),
+            Err(_) => log::error!("Display flush failed!"),
         }
     }
 }

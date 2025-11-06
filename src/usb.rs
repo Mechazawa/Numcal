@@ -10,21 +10,21 @@ pub struct MyRequestHandler {}
 
 impl RequestHandler for MyRequestHandler {
     fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
-        defmt::info!("Get report for {:?}", id);
+        log::info!("Get report for {:?}", id);
         None
     }
 
     fn set_report(&mut self, id: ReportId, data: &[u8]) -> embassy_usb::control::OutResponse {
-        defmt::info!("Set report for {:?}: {:?}", id, data);
+        log::info!("Set report for {:?}: {:?}", id, data);
         embassy_usb::control::OutResponse::Accepted
     }
 
     fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
-        defmt::info!("Set idle rate for {:?} to {:?}", id, dur);
+        log::info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
     fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
-        defmt::info!("Get idle rate for {:?}", id);
+        log::info!("Get idle rate for {:?}", id);
         None
     }
 }
@@ -41,12 +41,12 @@ pub async fn usb_hid_task(mut writer: HidReaderWriter<'static, Driver<'static, U
     // Track currently pressed keys (max 6 keys for NKRO)
     let mut pressed_keys: heapless::Vec<u8, 6> = heapless::Vec::new();
 
-    defmt::info!("USB HID task started");
+    log::info!("USB HID task started");
 
     loop {
         // Wait for key event
         let event = usb_receiver.receive().await;
-        defmt::info!(
+        log::info!(
             "USB HID: Key event R{}C{} pressed={}",
             event.row,
             event.col,
@@ -65,7 +65,7 @@ pub async fn usb_hid_task(mut writer: HidReaderWriter<'static, Driver<'static, U
             // Add key if not already in list and there's space
             if !pressed_keys.contains(&keycode) && pressed_keys.len() < 6 {
                 let _ = pressed_keys.push(keycode);
-                defmt::info!(
+                log::info!(
                     "USB HID: Added keycode 0x{:02x}, now {} keys pressed",
                     keycode,
                     pressed_keys.len()
@@ -75,7 +75,7 @@ pub async fn usb_hid_task(mut writer: HidReaderWriter<'static, Driver<'static, U
             // Remove key from list
             if let Some(pos) = pressed_keys.iter().position(|&k| k == keycode) {
                 pressed_keys.swap_remove(pos);
-                defmt::info!(
+                log::info!(
                     "USB HID: Removed keycode 0x{:02x}, now {} keys pressed",
                     keycode,
                     pressed_keys.len()
@@ -96,15 +96,15 @@ pub async fn usb_hid_task(mut writer: HidReaderWriter<'static, Driver<'static, U
             report.keycodes[i] = keycode;
         }
 
-        defmt::info!("USB HID: Sending report with {} keys", pressed_keys.len());
+        log::info!("USB HID: Sending report with {} keys", pressed_keys.len());
 
         // Send report
         match writer.write_serialize(&report).await {
             Ok(()) => {
-                defmt::info!("USB HID: Report sent successfully");
+                log::info!("USB HID: Report sent successfully");
             }
             Err(e) => {
-                defmt::error!("USB HID: Failed to send report: {:?}", e);
+                log::error!("USB HID: Failed to send report: {:?}", e);
             }
         }
     }
