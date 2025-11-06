@@ -9,30 +9,54 @@ use crate::{KeyEvent, COLS, DEBOUNCE_MS, KEYMAP, ROWS};
 /// Represents a single key in the matrix with its state
 #[derive(Clone, Copy)]
 struct Key {
-    row: usize,
-    col: usize,
     is_pressed: bool,
-    debounce_timer: u64,
+    debounce_timer: u8,
 }
 
 impl Key {
-    fn new(row: usize, col: usize) -> Self {
+    fn new() -> Self {
         Self {
-            row,
-            col,
             is_pressed: false,
             debounce_timer: 0,
         }
     }
 
-    /// Returns the USB HID keycode for this key
-    fn keycode(&self) -> u8 {
-        KEYMAP[self.row][self.col]
+    /// Update key state based on current input and debounce timer.
+    /// Returns Some(new_pressed_state) if the stable state changed after debounce.
+    fn update(&mut self, is_low: bool) -> Option<bool> {
+        if is_low != self.is_pressed {
+            // State differs from stable state
+            if self.debounce_timer == 0 {
+                // Start debounce timer
+                self.debounce_timer = DEBOUNCE_MS;
+                None
+            } else {
+                // Decrement timer
+                self.debounce_timer -= 1;
+
+                // Timer expired, update stable state
+                if self.debounce_timer == 0 {
+                    self.is_pressed = is_low;
+                    Some(is_low)
+                } else {
+                    None
+                }
+            }
+        } else {
+            // State matches stable state, reset timer
+            self.debounce_timer = 0;
+            None
+        }
     }
 
-    /// Maps this key to a calculator character if applicable
-    fn to_calc_char(&self) -> Option<char> {
-        match (self.row, self.col) {
+    /// Returns the USB HID keycode for this key at the given position
+    fn keycode(row: usize, col: usize) -> u8 {
+        KEYMAP[row][col]
+    }
+
+    /// Maps this key position to a calculator character if applicable
+    fn to_calc_char(row: usize, col: usize) -> Option<char> {
+        match (row, col) {
             // Row 1: Clear (Numlock), /, *, -
             (1, 0) => Some('C'), // Numlock = Clear
             (1, 1) => Some('/'),
@@ -59,14 +83,14 @@ impl Key {
         }
     }
 
-    /// Check if this is the Numlock key (R1C0)
-    fn is_numlock(&self) -> bool {
-        self.row == 1 && self.col == 0
+    /// Check if this position is the Numlock key (R1C0)
+    fn is_numlock(row: usize, col: usize) -> bool {
+        row == 1 && col == 0
     }
 
-    /// Check if this is a mode switch key (row 0)
-    fn is_mode_key(&self) -> bool {
-        self.row == 0
+    /// Check if this position is a mode switch key (row 0)
+    fn is_mode_key(row: usize) -> bool {
+        row == 0
     }
 }
 
@@ -77,13 +101,9 @@ struct KeyMatrix {
 
 impl KeyMatrix {
     fn new() -> Self {
-        let mut keys = [[Key::new(0, 0); COLS]; ROWS];
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                keys[row][col] = Key::new(row, col);
-            }
+        Self {
+            keys: [[Key::new(); COLS]; ROWS],
         }
-        Self { keys }
     }
 
     /// Scan the matrix and update key states. Returns keys that changed state.
@@ -104,43 +124,26 @@ impl KeyMatrix {
                 let key = &mut self.keys[row_idx][col_idx];
                 let is_low = col_pin.is_low();
 
-                // Update debounce logic
-                if is_low != key.is_pressed {
-                    // State differs from stable state
-                    if key.debounce_timer == 0 {
-                        // Start debounce timer
-                        key.debounce_timer = DEBOUNCE_MS;
+                // Update key state with debouncing
+                if let Some(new_state) = key.update(is_low) {
+                    // State changed after debouncing
+                    if new_state {
+                        info!(
+                            "Key pressed: R{}C{} (keycode=0x{:02x})",
+                            row_idx,
+                            col_idx,
+                            Key::keycode(row_idx, col_idx)
+                        );
+                        let _ = events.presses.push((row_idx, col_idx));
                     } else {
-                        // Decrement timer
-                        key.debounce_timer -= 1;
-
-                        // Timer expired, update stable state
-                        if key.debounce_timer == 0 {
-                            let was_pressed = key.is_pressed;
-                            key.is_pressed = is_low;
-
-                            if is_low && !was_pressed {
-                                info!(
-                                    "Key pressed: R{}C{} (keycode=0x{:02x})",
-                                    row_idx,
-                                    col_idx,
-                                    key.keycode()
-                                );
-                                let _ = events.presses.push(*key);
-                            } else if !is_low && was_pressed {
-                                info!(
-                                    "Key released: R{}C{} (keycode=0x{:02x})",
-                                    row_idx,
-                                    col_idx,
-                                    key.keycode()
-                                );
-                                let _ = events.releases.push(*key);
-                            }
-                        }
+                        info!(
+                            "Key released: R{}C{} (keycode=0x{:02x})",
+                            row_idx,
+                            col_idx,
+                            Key::keycode(row_idx, col_idx)
+                        );
+                        let _ = events.releases.push((row_idx, col_idx));
                     }
-                } else {
-                    // State matches stable state, reset timer
-                    key.debounce_timer = 0;
                 }
             }
 
@@ -172,8 +175,8 @@ impl KeyMatrix {
 
 /// Collection of key events from a scan
 struct KeyEvents {
-    presses: heapless::Vec<Key, 24>,
-    releases: heapless::Vec<Key, 24>,
+    presses: heapless::Vec<(usize, usize), 24>,
+    releases: heapless::Vec<(usize, usize), 24>,
 }
 
 impl KeyEvents {
@@ -204,21 +207,22 @@ impl KeyboardState {
     /// Handle a key press event
     async fn handle_press(
         &mut self,
-        key: Key,
+        row: usize,
+        col: usize,
         usb_sender: &Sender<'_, ThreadModeRawMutex, KeyEvent, 8>,
     ) {
         // Check for mode switching: Hold Numlock + Row 0 keys
-        if key.is_mode_key() && self.numlock_held {
-            self.switch_mode(key.col);
+        if Key::is_mode_key(row) && self.numlock_held {
+            self.switch_mode(col);
             return;
         }
 
         // Handle Numlock key
-        if key.is_numlock() {
+        if Key::is_numlock(row, col) {
             self.numlock_held = true;
             // In calculator mode, Numlock also acts as 'C' (clear)
             if self.current_mode == Mode::Calculator {
-                if let Some(ch) = key.to_calc_char() {
+                if let Some(ch) = Key::to_calc_char(row, col) {
                     self.calculator.handle_key(ch);
                 }
             }
@@ -230,14 +234,14 @@ impl KeyboardState {
             Mode::Numpad => {
                 usb_sender
                     .send(KeyEvent {
-                        row: key.row,
-                        col: key.col,
+                        row,
+                        col,
                         pressed: true,
                     })
                     .await;
             }
             Mode::Calculator => {
-                if let Some(ch) = key.to_calc_char() {
+                if let Some(ch) = Key::to_calc_char(row, col) {
                     self.calculator.handle_key(ch);
                 }
             }
@@ -250,11 +254,12 @@ impl KeyboardState {
     /// Handle a key release event
     async fn handle_release(
         &mut self,
-        key: Key,
+        row: usize,
+        col: usize,
         usb_sender: &Sender<'_, ThreadModeRawMutex, KeyEvent, 8>,
     ) {
         // Check if Numlock released
-        if key.is_numlock() {
+        if Key::is_numlock(row, col) {
             self.numlock_held = false;
             // return;
         }
@@ -263,8 +268,8 @@ impl KeyboardState {
         if self.current_mode == Mode::Numpad {
             usb_sender
                 .send(KeyEvent {
-                    row: key.row,
-                    col: key.col,
+                    row,
+                    col,
                     pressed: false,
                 })
                 .await;
@@ -329,13 +334,13 @@ pub async fn keyboard_task(
         let events = matrix.scan(rows, cols).await;
 
         // Handle key presses
-        for key in events.presses.iter() {
-            state.handle_press(*key, &usb_sender).await;
+        for &(row, col) in events.presses.iter() {
+            state.handle_press(row, col, &usb_sender).await;
         }
 
         // Handle key releases
-        for key in events.releases.iter() {
-            state.handle_release(*key, &usb_sender).await;
+        for &(row, col) in events.releases.iter() {
+            state.handle_release(row, col, &usb_sender).await;
         }
 
         // Check for bootsel reboot: all 4 top row keys pressed

@@ -32,7 +32,7 @@ bind_interrupts!(struct Irqs {
 // Keyboard matrix configuration
 const ROWS: usize = 6;
 const COLS: usize = 4;
-const DEBOUNCE_MS: u64 = 10;
+const DEBOUNCE_MS: u8 = 10;
 
 // Keymap: USB HID keycodes for each matrix position
 // Based on TODO.md numpad layout

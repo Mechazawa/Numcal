@@ -7,6 +7,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 use embedded_hal_bus::spi::ExclusiveDevice;
+use log::trace;
 use ssd1306::prelude::*;
 use ssd1306::Ssd1306;
 
@@ -40,7 +41,7 @@ pub async fn display_task(display: &'static mut DisplayType) {
     // Wait for messages and render them
     loop {
         let text = receiver.receive().await;
-        log::trace!("Rendering: {}", text.as_str());
+        trace!("Rendering: {}", text.as_str());
 
         // Clear display
         display.clear(BinaryColor::Off).unwrap();
@@ -58,7 +59,7 @@ pub async fn display_task(display: &'static mut DisplayType) {
 
         // Flush to display
         match display.flush() {
-            Ok(_) => log::trace!("Display updated successfully"),
+            Ok(_) => trace!("Display updated successfully"),
             Err(_) => log::error!("Display flush failed!"),
         }
     }
