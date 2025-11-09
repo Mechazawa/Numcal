@@ -7,7 +7,7 @@ use log::info;
 use static_cell::StaticCell;
 use crate::tasks::display;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Key {
     F1,
     F2,
@@ -36,13 +36,12 @@ enum Key {
 const ROWS: usize = 6;
 const COLS: usize = 4;
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(10);
-const LOOP_DELAY: Duration = Duration::from_millis(10);
-
-type StateContainer = [[Debounce<bool>; COLS]; ROWS];
+const LOOP_DELAY: Duration = Duration::from_millis(2);
 
 static ROWS_CELL: StaticCell<[Output<'static>; ROWS]> = StaticCell::new();
 static COLS_CELL: StaticCell<[Input<'static>; COLS]> = StaticCell::new();
-static STATE_CELL: StaticCell<StateContainer> = StaticCell::new();
+static DEBOUNCE_CELL: StaticCell<[[Debounce<bool>; COLS]; ROWS]> = StaticCell::new();
+static mut STATE: [[bool; COLS]; ROWS] = [[false; COLS]; ROWS];
 
 const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::F1, Key::F2, Key::F3, Key::F4],
@@ -60,32 +59,36 @@ pub async fn init(
 ) {
     let rows = ROWS_CELL.init(row_pins.map(|pin| Output::new(pin, Level::High)));
     let cols = COLS_CELL.init(col_pins.map(|pin| Input::new(pin, Pull::Up)));
-    let state = STATE_CELL.init([[false; COLS]; ROWS].map(|row| row.map(|value| Debounce::new(value, DEBOUNCE_DELAY))));
+    let debouncer = DEBOUNCE_CELL.init([[false; COLS]; ROWS].map(|row| row.map(|value| Debounce::new(value, DEBOUNCE_DELAY))));
 
-    spawner.spawn(keyboard_task(rows, cols, state).unwrap());
+    spawner.spawn(keyboard_task(rows, cols, debouncer).unwrap());
 }
 
 #[embassy_executor::task]
 pub async fn keyboard_task(
     rows: &'static mut [Output<'static>; ROWS],
     cols: &'static [Input<'static>; COLS],
-    state: &'static mut StateContainer,
+    debouncer: &'static mut [[Debounce<bool>; COLS]; ROWS],
 ) {
     loop {
         for (row_idx, row_pin) in rows.iter_mut().enumerate() {
             row_pin.set_low();
 
             for (col_idx, col_pin) in cols.iter().enumerate() {
-                let low = col_pin.is_low();
-                let changed = state[row_idx][col_idx].measure(low);
+                let pressed = col_pin.is_low();
+                let changed = debouncer[row_idx][col_idx].measure(pressed);
 
                 if changed {
+                    unsafe {
+                        STATE[row_idx][col_idx] = pressed;
+                    }
+
                     let key = KEYMAP[row_idx][col_idx];
 
-                    if low {
-                        info!("LOW  [{row_idx}][{col_idx}] {:?}", key);
+                    if pressed {
+                        info!("DOWN [{row_idx}][{col_idx}] {:?}", key);
                     } else {
-                        info!("HIGH [{row_idx}][{col_idx}] {:?}", key);
+                        info!("UP   [{row_idx}][{col_idx}] {:?}", key);
                     }
                 }
             }
@@ -95,4 +98,17 @@ pub async fn keyboard_task(
 
         Timer::after(LOOP_DELAY).await;
     }
+}
+
+pub fn pressed(key: Key) -> bool {
+    // Todo improve the lookup
+    for col in 0..COLS {
+        for row in 0..ROWS {
+            if KEYMAP[row][col] == key {
+                return unsafe { STATE[row][col] };
+            }
+        }
+    }
+
+    false
 }
