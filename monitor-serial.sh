@@ -8,6 +8,10 @@ DURATION=${1:-5}
 SERIAL_PORT=$(ls /dev/cu.usbmodem* 2>/dev/null | head -n 1)
 
 if [ -z "$SERIAL_PORT" ]; then
+  SERIAL_PORT=$(ls /dev/serial/by-id/* 2>/dev/null | head -n 1)
+fi
+
+if [ -z "$SERIAL_PORT" ]; then
     echo "Error: No USB serial device found (looking for /dev/cu.usbmodem*)"
     echo "Available serial devices:"
     ls /dev/cu.* 2>/dev/null | grep -v Bluetooth

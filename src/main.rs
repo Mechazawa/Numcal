@@ -40,42 +40,34 @@ async fn main(spawner: Spawner) {
         peripherals.PIN_10,
     ).await;
 
+    show_text("Boot Keyboard");
+
     init_keypad(&spawner, [
-        peripherals.PIN_9,
-        peripherals.PIN_8,
-        peripherals.PIN_7,
-        peripherals.PIN_6,
-        peripherals.PIN_5,
-        peripherals.PIN_4,
+        peripherals.PIN_9.into(),
+        peripherals.PIN_8.into(),
+        peripherals.PIN_7.into(),
+        peripherals.PIN_6.into(),
+        peripherals.PIN_5.into(),
+        peripherals.PIN_4.into(),
     ], [
-        peripherals.PIN_26,
-        peripherals.PIN_27,
-        peripherals.PIN_28,
-        peripherals.PIN_29,
+        peripherals.PIN_26.into(),
+        peripherals.PIN_27.into(),
+        peripherals.PIN_28.into(),
+        peripherals.PIN_29.into(),
     ]).await;
+
+    show_text("Ready");
 
     // Wait for USB to enumerate and logger to be ready
     // todo add this to the init_usb with a timeout
     Timer::after_secs(2).await;
 
     // Draw text on display
-    let mut display = DisplayProxy::new();
+    show_text("Waiting...");
 
-    display.clear(BinaryColor::Off).unwrap();
+    Timer::after_secs(9).await;
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
-
-    display.clear(BinaryColor::Off).unwrap();
-
-    Text::with_baseline("Hello World!", Point::new(5, 38), text_style, Baseline::Middle)
-        .draw(&mut display)
-        .unwrap();
-
-    display.flush().unwrap();
-
+    show_text("Reboot");
     Timer::after_secs(1).await;
 
     info!("Rebooting to BOOTSEL mode...");
@@ -90,4 +82,23 @@ async fn main(spawner: Spawner) {
     loop {
         Timer::after_secs(1).await;
     }
+}
+
+fn show_text(text: &str) {
+    let mut display = DisplayProxy::new();
+
+    display.clear(BinaryColor::Off).unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    display.clear(BinaryColor::Off).unwrap();
+
+    Text::with_baseline(text, Point::new(5, 38), text_style, Baseline::Middle)
+        .draw(&mut display)
+        .unwrap();
+
+    display.flush().unwrap();
 }

@@ -10,7 +10,7 @@ pub struct Debounce<T> {
 }
 
 impl<T> Debounce<T> where T: Clone + PartialEq<T> {
-    pub fn new(initial: &T, delay: Duration) -> Self {
+    pub fn new(initial: T, delay: Duration) -> Self {
         Self {
             value: initial.clone(),
             delay,
@@ -19,12 +19,16 @@ impl<T> Debounce<T> where T: Clone + PartialEq<T> {
         }
     }
 
-    pub fn measure(&mut self, value: &T) -> bool {
-        if self.measured_value != *value {
-            self.measured_value = value.clone();
+    pub fn measure(&mut self, value: T) -> bool {
+        if self.measured_value != value {
+            self.measured_value = value;
             self.measured_at = Instant::now();
-        } else if Instant::now().duration_since(self.measured_at) >= self.delay {
-            self.measured_value = value.clone();
+
+            return false
+        }
+
+        if self.measured_value != self.value && Instant::now().duration_since(self.measured_at) >= self.delay {
+            self.value = value;
 
             return true;
         }
