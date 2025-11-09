@@ -8,7 +8,6 @@ use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use log::{error, info};
@@ -105,6 +104,9 @@ async fn display_task(display: &'static mut DisplayType) {
         Text::with_baseline(text.as_str(), Point::new(5, 38), text_style, Baseline::Middle)
             .draw(display)
             .unwrap();
+
+        // Flush the buffer to the display hardware
+        display.flush().unwrap();
 
         info!("Text should be drawn");
     }
