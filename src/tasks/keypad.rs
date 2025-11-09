@@ -1,11 +1,11 @@
 use crate::utils::debounce::Debounce;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Level, Pull, Output, Input, AnyPin, Pin};
+use embassy_rp::gpio::{Level, Pull, Output, Input, AnyPin};
 use embassy_rp::Peri;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Timer};
 use log::info;
+use portable_atomic::{AtomicBool, Ordering};
 use static_cell::StaticCell;
-use crate::tasks::display;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Key {
@@ -41,7 +41,16 @@ const LOOP_DELAY: Duration = Duration::from_millis(2);
 static ROWS_CELL: StaticCell<[Output<'static>; ROWS]> = StaticCell::new();
 static COLS_CELL: StaticCell<[Input<'static>; COLS]> = StaticCell::new();
 static DEBOUNCE_CELL: StaticCell<[[Debounce<bool>; COLS]; ROWS]> = StaticCell::new();
-static mut STATE: [[bool; COLS]; ROWS] = [[false; COLS]; ROWS];
+
+// todo not great but does the trick
+static STATE: [[AtomicBool; COLS]; ROWS] = [
+    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+];
 
 const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::F1, Key::F2, Key::F3, Key::F4],
@@ -79,9 +88,7 @@ pub async fn keyboard_task(
                 let changed = debouncer[row_idx][col_idx].measure(pressed);
 
                 if changed {
-                    unsafe {
-                        STATE[row_idx][col_idx] = pressed;
-                    }
+                    STATE[row_idx][col_idx].store(pressed, Ordering::Relaxed);
 
                     let key = KEYMAP[row_idx][col_idx];
 
@@ -105,7 +112,7 @@ pub fn pressed(key: Key) -> bool {
     for col in 0..COLS {
         for row in 0..ROWS {
             if KEYMAP[row][col] == key {
-                return unsafe { STATE[row][col] };
+                return STATE[row][col].load(Ordering::Relaxed);
             }
         }
     }
