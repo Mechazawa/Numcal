@@ -3,22 +3,24 @@ use embassy_rp::gpio::{Level, Output, Pin};
 use embassy_rp::peripherals::SPI1;
 use embassy_rp::spi::{ClkPin, Config as SpiConfig, MosiPin, Spi};
 use embassy_rp::Peri;
+use embassy_sync::blocking_mutex::raw::{RawMutex, ThreadModeRawMutex};
+use embassy_sync::channel::{Sender, TrySendError};
 use embassy_time::Timer;
-use embedded_graphics::mono_font::ascii::FONT_6X10;
-use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::text::{Baseline, Text};
+use embedded_graphics::primitives::Rectangle;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use log::{error, info};
 use ssd1306::Ssd1306;
 use ssd1306::prelude::*;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-use crate::tasks::DISPLAY_CHANNEL;
+use embassy_sync::channel::Channel;
+use embedded_graphics::Pixel;
 
 // Display
 type PinSpi = SPI1;
+type DisplaySize = DisplaySize128x64;
 type DisplayType = Ssd1306<
     SPIInterface<
         ExclusiveDevice<
@@ -28,11 +30,22 @@ type DisplayType = Ssd1306<
         >,
         Output<'static>,
     >,
-    DisplaySize128x64,
-    ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>,
+    DisplaySize,
+    ssd1306::mode::BufferedGraphicsMode<DisplaySize>,
 >;
 
+const DRAW_BUFFER_SIZE: usize = 128;
+#[derive(Debug)]
+pub enum DisplayAction<C = BinaryColor> where C: PixelColor {
+    Clear(C),
+    FillSolid(Rectangle, C),
+    Draw(heapless::Vec<Pixel<C>, DRAW_BUFFER_SIZE>),
+    Flush,
+}
+
 static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
+static DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(128, 64));
+pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 128> = Channel::new();
 
 pub async fn init(
     spawner: &Spawner,
@@ -90,24 +103,79 @@ async fn display_task(display: &'static mut DisplayType) {
     let receiver = DISPLAY_CHANNEL.receiver();
 
     loop {
-        let text = receiver.receive().await;
+       let err = match receiver.receive().await {
+            DisplayAction::Clear(color) => (*display).clear(color),
+            DisplayAction::FillSolid(rect, color) => (*display).fill_solid(&rect, color),
+            DisplayAction::Draw(pixels) => (*display).draw_iter(pixels),
+            DisplayAction::Flush => (*display).flush(),
+       };
 
-        // Create text style
-        let text_style = MonoTextStyleBuilder::new()
-            .font(&FONT_6X10)
-            .text_color(BinaryColor::On)
-            .build();
+        if let Err(e) = err {
+            error!("Display error: {e:?}");
+        }
+    }
+}
 
-        display.clear(BinaryColor::Off).unwrap();
+pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 128> where T: RawMutex, C: PixelColor {
+    channel: Sender<'u, T, DisplayAction<C>, CN>,
+}
 
-        // Draw text
-        Text::with_baseline(text.as_str(), Point::new(5, 38), text_style, Baseline::Middle)
-            .draw(display)
-            .unwrap();
+impl DisplayProxy<'_, > {
+    pub fn new() -> Self {
+        Self {
+            channel: DISPLAY_CHANNEL.sender(),
+        }
+    }
+}
 
-        // Flush the buffer to the display hardware
-        display.flush().unwrap();
+impl<T, C> DisplayProxy<'_, T, C> where T:  RawMutex, C: PixelColor {
+    pub fn flush(&mut self) -> Result<(), TrySendError<DisplayAction<C>>> {
+        while self.channel.is_full() {}
 
-        info!("Text should be drawn");
+        self.channel.try_send(DisplayAction::Flush)
+    }
+}
+
+impl<T, C> Dimensions for DisplayProxy<'_, T, C>
+where
+    C: PixelColor,
+    T: RawMutex,
+{
+    fn bounding_box(&self) -> Rectangle {
+        DISPLAY_SIZE
+    }
+}
+
+impl<T, C> DrawTarget for DisplayProxy<'_, T, C>
+where
+    T: RawMutex,
+    C: PixelColor
+{
+    type Color = C;
+    type Error = TrySendError<DisplayAction<C>>;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item=Pixel<Self::Color>>
+    {
+        let pixels = heapless::Vec::from_iter(pixels);
+
+        while self.channel.is_full() {}
+
+        self.channel.try_send(DisplayAction::Draw(pixels))?;
+
+        Ok(())
+    }
+
+    fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
+        while self.channel.is_full() {}
+
+        self.channel.try_send(DisplayAction::FillSolid(*area, color))
+    }
+
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        while self.channel.is_full() {}
+
+        self.channel.try_send(DisplayAction::Clear(color))
     }
 }
