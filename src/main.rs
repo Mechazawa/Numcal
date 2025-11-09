@@ -1,7 +1,9 @@
 #![no_std]
 #![no_main]
 mod tasks;
+mod utils;
 
+use cortex_m::Peripherals;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use embassy_rp::config::Config;
@@ -17,7 +19,7 @@ use log::info;
 
 use tasks::init_usb;
 use tasks::init_display;
-use crate::tasks::DisplayProxy;
+use crate::tasks::{init_keypad, DisplayProxy};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -37,6 +39,20 @@ async fn main(spawner: Spawner) {
         peripherals.PIN_3,
         peripherals.PIN_10,
     ).await;
+
+    init_keypad(&spawner, [
+        peripherals.PIN_9,
+        peripherals.PIN_8,
+        peripherals.PIN_7,
+        peripherals.PIN_6,
+        peripherals.PIN_5,
+        peripherals.PIN_4,
+    ], [
+        peripherals.PIN_26,
+        peripherals.PIN_27,
+        peripherals.PIN_28,
+        peripherals.PIN_29,
+    ]).await;
 
     // Wait for USB to enumerate and logger to be ready
     // todo add this to the init_usb with a timeout
