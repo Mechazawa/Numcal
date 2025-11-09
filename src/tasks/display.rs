@@ -8,6 +8,7 @@ use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use log::{error, info};
@@ -87,21 +88,24 @@ pub async fn init(
 async fn display_task(display: &'static mut DisplayType) {
     info!("Display rendering task started");
 
-    // Create text style
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
-
-    let text = Text::with_baseline("Hello World!", Point::new(5, 38), text_style, Baseline::Middle);
-
-    text.draw(display).unwrap();
-
     let receiver = DISPLAY_CHANNEL.receiver();
 
     loop {
-        let _data = receiver.receive().await;
+        let text = receiver.receive().await;
 
-        // Do nothing for now
+        // Create text style
+        let text_style = MonoTextStyleBuilder::new()
+            .font(&FONT_6X10)
+            .text_color(BinaryColor::On)
+            .build();
+
+        display.clear(BinaryColor::Off).unwrap();
+
+        // Draw text
+        Text::with_baseline(text.as_str(), Point::new(5, 38), text_style, Baseline::Middle)
+            .draw(display)
+            .unwrap();
+
+        info!("Text should be drawn");
     }
 }

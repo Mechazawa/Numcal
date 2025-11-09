@@ -3,6 +3,7 @@
 
 mod tasks;
 
+use core::str::FromStr;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use embassy_rp::config::Config;
@@ -11,6 +12,7 @@ use log::info;
 
 use tasks::init_usb;
 use tasks::init_display;
+use crate::tasks::DISPLAY_CHANNEL;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -33,13 +35,13 @@ async fn main(spawner: Spawner) {
 
     // Wait for USB to enumerate and logger to be ready
     // todo add this to the init_usb with a timeout
-    Timer::after_millis(2000).await;
+    Timer::after_secs(2).await;
 
-    // Log hello world
-    info!("Hello world!");
+    // Draw text on display
+    DISPLAY_CHANNEL.try_send(heapless::String::from_str("Hello World!").unwrap()).unwrap();
 
     // Wait a bit so the message can be seen
-    Timer::after_millis(3000).await;
+    Timer::after_secs(3).await;
 
     info!("Rebooting to BOOTSEL mode...");
 
