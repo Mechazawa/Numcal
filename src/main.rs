@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-
 mod tasks;
 
 use embassy_executor::Spawner;
@@ -53,20 +52,15 @@ async fn main(spawner: Spawner) {
         .text_color(BinaryColor::On)
         .build();
 
-    Rectangle::new(Point::new(124, 0), Size::new(4, 64))
-        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-        .draw(&mut display)
-        .unwrap();
+    display.clear(BinaryColor::Off).unwrap();
 
-    // Draw text
-    Text::with_baseline("Test 123", Point::new(5, 38), text_style, Baseline::Middle)
+    Text::with_baseline("Hello World!", Point::new(5, 38), text_style, Baseline::Middle)
         .draw(&mut display)
         .unwrap();
 
     display.flush().unwrap();
 
-    // Wait a bit so the message can be seen
-    Timer::after_secs(3).await;
+    Timer::after_secs(1).await;
 
     info!("Rebooting to BOOTSEL mode...");
 
