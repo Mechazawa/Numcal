@@ -72,13 +72,13 @@ impl RequestHandler for HidRequestHandler {
         }
     }
 
-    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
-        log::debug!("HID set_idle: id={id:?}, duration={dur}ms");
-    }
-
     fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         log::debug!("HID get_idle: id={id:?}");
         None
+    }
+
+    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
+        log::debug!("HID set_idle: id={id:?}, duration={dur}ms");
     }
 }
 
