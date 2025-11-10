@@ -35,6 +35,46 @@ pub enum Key {
     NC,
 }
 
+impl Key {
+    /// Convert a Key to its corresponding HID keycode
+    /// Returns None for unmapped keys (NC)
+    pub fn into_hid_keycode(self) -> Option<u8> {
+        match self {
+            // Function keys
+            Key::F1 => Some(0x3A),
+            Key::F2 => Some(0x3B),
+            Key::F3 => Some(0x3C),
+            Key::F4 => Some(0x3D),
+
+            // NumLock
+            Key::Lock => Some(0x53),
+
+            // Keypad operators
+            Key::Div => Some(0x54),   // KP_DIVIDE
+            Key::Mul => Some(0x55),   // KP_MULTIPLY
+            Key::Sub => Some(0x56),   // KP_SUBTRACT
+            Key::Add => Some(0x57),   // KP_ADD
+            Key::Enter => Some(0x58), // KP_ENTER
+            Key::Dot => Some(0x63),   // KP_DOT
+
+            // Keypad digits
+            Key::D0 => Some(0x62), // KP_0
+            Key::D1 => Some(0x59), // KP_1
+            Key::D2 => Some(0x5A), // KP_2
+            Key::D3 => Some(0x5B), // KP_3
+            Key::D4 => Some(0x5C), // KP_4
+            Key::D5 => Some(0x5D), // KP_5
+            Key::D6 => Some(0x5E), // KP_6
+            Key::D7 => Some(0x5F), // KP_7
+            Key::D8 => Some(0x60), // KP_8
+            Key::D9 => Some(0x61), // KP_9
+
+            // Not connected
+            Key::NC => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KeyEvent {
     pub key: Key,

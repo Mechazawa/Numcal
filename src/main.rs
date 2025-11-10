@@ -3,9 +3,11 @@
 mod tasks;
 mod utils;
 
+use core::str::FromStr;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use embassy_rp::config::Config;
+use embassy_sync::pubsub::WaitResult;
 use embedded_graphics::Drawable;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
@@ -14,10 +16,10 @@ use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
 use {defmt_rtt as _, panic_probe as _};
 use log::info;
-
+use core::fmt::Write;
 use tasks::init_usb;
 use tasks::init_display;
-use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy};
+use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy, HidEvent, HID_CHANNEL, KEYPAD_CHANNEL};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -58,29 +60,31 @@ async fn main(spawner: Spawner) {
 
     show_text("Ready");
 
-    // Wait for USB to enumerate and logger to be ready
-    // todo add this to the init_usb with a timeout
-    Timer::after_secs(2).await;
+    // Temporary numpad mode
+    let mut keypad_receiver = KEYPAD_CHANNEL.subscriber().unwrap();
+    let hid_sender = HID_CHANNEL.sender();
 
-    // Draw text on display
-    show_text("Waiting...");
+    hid_sender.send(HidEvent::Reset).await;
 
-    Timer::after_secs(9).await;
-
-    show_text("Reboot");
-    Timer::after_secs(1).await;
-
-    info!("Rebooting to BOOTSEL mode...");
-
-    // Give time for the log message to be transmitted
-    Timer::after_millis(100).await;
-
-    // Reboot into bootsel mode
-    embassy_rp::rom_data::reset_to_usb_boot(0, 0);
-
-    // Should never reach here
     loop {
-        Timer::after_secs(1).await;
+        if let WaitResult::Message(event) = keypad_receiver.next_message().await {
+            if let Some(keycode) = event.key.into_hid_keycode() {
+                if event.pressed {
+                    hid_sender.send(HidEvent::SetKey(keycode)).await;
+                } else {
+                    hid_sender.send(HidEvent::ReleaseKey(keycode)).await;
+                }
+            }
+
+
+            let mut str = heapless::String::<32>::new();
+
+            if let Ok(()) = write!(&mut str, "{} {:?}", if event.pressed {"PRESS "} else {"RELEASE "}, event.key) {
+                show_text(&str);
+            } else {
+                show_text("Whoops");
+            }
+        }
     }
 }
 
