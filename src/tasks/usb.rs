@@ -8,6 +8,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State as CdcState};
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State as HidState};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config as UsbConfig};
+use portable_atomic::{AtomicU8, Ordering};
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
@@ -21,8 +22,19 @@ pub enum HidEvent {
     ReleaseModifier(u8),
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum KeyboardLed {
+    NumLock = 1 << 0,
+    CapsLock = 1 << 1,
+    ScrollLock = 1 << 2,
+    Compose = 1 << 3,
+    Kana = 1 << 4,
+}
+
 /// Channel for sending HID events to the HID task
 pub static HID_CHANNEL: Channel<ThreadModeRawMutex, HidEvent, 32> = Channel::new();
+pub static LED_STATE: LedState = LedState::new();
 
 // Interrupts
 bind_interrupts!(struct Irqs {
@@ -35,23 +47,54 @@ static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
 static CDC_STATE: StaticCell<CdcState> = StaticCell::new();
 static HID_STATE: StaticCell<HidState> = StaticCell::new();
+static REQUEST_HANDLER_CELL: StaticCell<HidRequestHandler> = StaticCell::new();
 
 // HID Request Handler
 struct HidRequestHandler {}
 
 impl RequestHandler for HidRequestHandler {
     fn get_report(&mut self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+        // Host is asking for current report state
+        // Not typically needed for keyboards
         None
     }
 
-    fn set_report(&mut self, _id: ReportId, _data: &[u8]) -> OutResponse {
-        OutResponse::Accepted
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
+        // Host is sending us data - typically LED status for keyboards
+        log::debug!("HID set_report: id={id:?}, len={}", data.len());
+
+        if data.is_empty() {
+            OutResponse::Rejected
+        } else {
+            LED_STATE.store(data[0]);
+
+            OutResponse::Accepted
+        }
     }
 
-    fn set_idle_ms(&mut self, _id: Option<ReportId>, _dur: u32) {}
+    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
+        log::debug!("HID set_idle: id={id:?}, duration={dur}ms");
+    }
 
-    fn get_idle_ms(&mut self, _id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
+        log::debug!("HID get_idle: id={id:?}");
         None
+    }
+}
+
+pub struct LedState(AtomicU8);
+
+impl LedState {
+    const fn new() -> Self {
+        Self(AtomicU8::new(0))
+    }
+
+    fn store(&self, state: u8) {
+        self.0.store(state, Ordering::Relaxed)
+    }
+
+    pub fn test(&self, led: KeyboardLed) -> bool {
+        self.0.load(Ordering::Relaxed) & led as u8 > 0
     }
 }
 
@@ -78,7 +121,7 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
     // Create HID class for keyboard
     let hid_config = embassy_usb::class::hid::Config {
         report_descriptor: KeyboardReport::desc(),
-        request_handler: None,
+        request_handler: Some(REQUEST_HANDLER_CELL.init(HidRequestHandler {})),
         poll_ms: 60,
         max_packet_size: 8,
     };
