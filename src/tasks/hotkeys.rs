@@ -11,6 +11,13 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::text::{Baseline, Text};
 use crate::tasks::{key_pressed, DisplayProxy, Key, KEYPAD_CHANNEL};
 
+const REBOOT_KEYS: [Key; 4] = [
+    Key::F1,
+    Key::F2,
+    Key::F3,
+    Key::F4,
+];
+
 pub async fn init(spawner: &Spawner) {
     spawner.spawn(reboot_hotkey_task().unwrap());
 }
@@ -18,12 +25,6 @@ pub async fn init(spawner: &Spawner) {
 #[embassy_executor::task]
 pub async fn reboot_hotkey_task() {
     let mut receiver = KEYPAD_CHANNEL.subscriber().unwrap();
-    const REBOOT_KEYS: [Key; 4] = [
-        Key::F1,
-        Key::F2,
-        Key::F3,
-        Key::F4,
-    ];
 
     loop {
         if let WaitResult::Message(event) = receiver.next_message().await {

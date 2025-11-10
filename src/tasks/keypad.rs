@@ -63,7 +63,7 @@ static STATE: [[AtomicBool; COLS]; ROWS] = [
     [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
 ];
 
-const KEYMAP_INV: [Option<(u8, u8)>; KEY_COUNT] = build_inverse_keymap();
+const KEYMAP_INV: [Option<(usize, usize)>; KEY_COUNT] = build_inverse_keymap();
 const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::F1, Key::F2, Key::F3, Key::F4],
     [Key::Lock, Key::Div, Key::Mul, Key::Sub],
@@ -73,7 +73,7 @@ const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::NC, Key::D0, Key::Dot, Key::Enter],
 ];
 
-const fn build_inverse_keymap() -> [Option<(u8, u8)>; KEY_COUNT] {
+const fn build_inverse_keymap() -> [Option<(usize, usize)>; KEY_COUNT] {
     let mut result = [None; KEY_COUNT];
 
     let mut row = 0;
@@ -85,7 +85,7 @@ const fn build_inverse_keymap() -> [Option<(u8, u8)>; KEY_COUNT] {
 
             // Only set if not already set (handles duplicate keys)
             if result[key_idx].is_none() {
-                result[key_idx] = Some((row as u8, col as u8));
+                result[key_idx] = Some((row, col));
             }
 
             col += 1;
@@ -156,7 +156,7 @@ pub fn key_pressed(key: Key) -> bool {
     if key as usize >= KEYMAP.len() {
         false
     } else if let Some((row, col)) = KEYMAP_INV[key as usize] {
-        STATE[row as usize][col as usize].load(Ordering::Relaxed)
+        STATE[row][col].load(Ordering::Relaxed)
     } else {
         false
     }
