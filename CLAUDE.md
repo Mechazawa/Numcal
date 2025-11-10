@@ -4,197 +4,134 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NumCal is an embedded Rust firmware for a custom numpad/calculator device running on the RP2040 microcontroller (Raspberry Pi Pico). It uses Embassy (async embedded framework) to manage concurrent tasks for USB HID, keyboard matrix scanning, OLED display updates, and hotkey detection.
+NumCal is an RP2040-based custom keyboard firmware featuring a 6x4 matrix keypad with OLED display and USB HID support. Built using Embassy async runtime for embedded Rust.
 
-**Key Technologies:**
-- **Target:** `thumbv6m-none-eabi` (ARM Cortex-M0+)
-- **Runtime:** Embassy async executor with cooperative multitasking
-- **Display:** SSD1306 128x64 OLED (SPI interface)
-- **USB:** CDC-ACM for logging + USB HID (planned)
-- **Build:** Optimized for size (`opt-level = "z"`, LTO enabled)
+## Build Commands
 
-## Essential Commands
-
-### Building & Flashing
+**Target**: `thumbv6m-none-eabi` (Cortex-M0+ ARM)
 
 ```bash
-# Build release version (optimized for size)
+# Build release
 cargo build --release
 
-# Build and flash automatically (requires picotool)
-cargo run --release
-
-# Development build
+# Build debug
 cargo build
 
-# Analyze memory usage
-./memory-usage.sh          # Basic report
-./memory-usage.sh -v       # Verbose with top consumers
+# Build and flash (requires picotool)
+cargo run --release
+
+# Clippy
+cargo clippy
+
+# Memory/size analysis
+cargo size --release
+cargo bloat --release
+cargo nm --release
 ```
 
-### Size Analysis Tools
+## Flashing
 
-```bash
-# Section sizes
-cargo size --release -- -A
+The project uses `flash.sh` as the cargo runner (see `.cargo/config.toml`). It automatically:
+1. Reboots the device into BOOTSEL mode via `picotool reboot -u -f`
+2. Flashes the ELF binary using `picotool load`
 
-# Top code size contributors
-cargo bloat --release -n 10
-
-# RAM usage analysis
-cargo bloat --release -n 10 --data
-
-# Symbol sizes
-rust-nm --print-size --size-sort --radix=d target/thumbv6m-none-eabi/release/numcal
-```
-
-### Flashing Methods
-
-1. **Automatic (recommended):** `cargo run --release` uses `flash.sh` which auto-reboots device via picotool
-2. **Manual UF2:** Build, convert with `elf2uf2-rs`, drag-drop to RPI-RP2 drive
-3. **Debug probe:** Use `probe-rs` if hardware debugger is connected
+**Alternative manual flash**: Use `elf2uf2-rs` to convert ELF to UF2, then drag-drop onto the RPI-RP2 drive.
 
 ## Architecture
 
-### Task-Based Concurrency
+### Task System (Embassy Executor)
 
-The firmware uses Embassy's executor to run multiple cooperative tasks simultaneously:
+The firmware is organized into concurrent async tasks spawned by Embassy:
 
-1. **USB Device Task** (`tasks/usb.rs`) - Handles USB enumeration and CDC-ACM logging
-2. **Display Task** (`tasks/display.rs`) - Asynchronous display rendering via channel
-3. **Keypad Task** (`tasks/keypad.rs`) - Matrix scanning with debouncing, publishes key events
-4. **Hotkey Task** (`tasks/hotkeys.rs`) - Monitors F1+F2+F3+F4 combo for BOOTSEL reboot
+- **USB task** (`tasks/usb.rs`): Manages USB device, HID keyboard interface, and CDC-ACM logging
+- **Display task** (`tasks/display.rs`): Renders to SSD1306 OLED via SPI using a channel-based command queue
+- **Keypad task** (`tasks/keypad.rs`): Scans 6x4 matrix, debounces keys, publishes events to `KEYPAD_CHANNEL`
+- **Hotkeys task** (`tasks/hotkeys.rs`): Listens for F1+F2+F3+F4 combo to reboot into BOOTSEL mode
+- **Mode handler** (`modes/mod.rs`): Runs the active mode's task loop and handles mode switching
 
-Tasks communicate via:
-- **Channels** (`embassy_sync::channel`) for display commands
-- **PubSub** (`embassy_sync::pubsub`) for keyboard events
+### Communication Channels
 
-### Display Architecture
+- `KEYPAD_CHANNEL` (PubSub): Broadcasts `KeyEvent` from keypad scanner to multiple subscribers
+- `HID_CHANNEL` (MPSC): Sends `HidEvent` commands to USB HID task
+- `DISPLAY_CHANNEL` (MPSC): Queues `DisplayAction` commands for rendering
 
-The display uses a proxy pattern to allow any task to draw without blocking:
+### Mode System
 
-- `DisplayProxy` implements `DrawTarget` from `embedded-graphics`
-- Drawing commands are buffered into `DisplayAction` enums and sent via channel
-- The dedicated display task processes commands and calls the SSD1306 driver
-- This prevents SPI bus contention and allows non-blocking graphics updates
+Modes implement the `Mode` trait with an async `task()` method. The mode handler:
+- Runs the current mode's task in a loop
+- Monitors `TARGET_MODE` and `MODE_RUNNING` atomics
+- Switches modes when Lock+F1/F2/F3/F4 is pressed (handled by `mode_switcher_task`)
+- Uses `enum_dispatch` for zero-cost dispatch to mode implementations
 
-### Keyboard Matrix Scanning
+Current modes:
+- `BootMode`: Displays splash screen for 2 seconds on startup
+- `NumpadMode`: Standard numpad with HID passthrough (Lock+Fn excluded)
 
-6 rows × 4 columns = 24 keys total:
-- **Rows** (GP4-GP9): Output pins, driven low sequentially
-- **Columns** (GP26-GP29): Input pins with pull-ups
+### Hardware Configuration
 
-Scanning process:
-1. Set one row low, others high
-2. Read all column pins (low = pressed)
-3. Debounce using `Debounce<bool>` utility (10ms threshold)
-4. Publish `KeyEvent` to PubSub channel on state changes
-5. Store state in atomic bool array for synchronous `key_pressed()` queries
+**Keypad Matrix**:
+- Rows (outputs): GP9, GP8, GP7, GP6, GP5, GP4
+- Cols (inputs with pull-up): GP26, GP27, GP28, GP29
 
-### Memory Constraints
+**OLED Display (SSD1306, SPI)**:
+- SCK: GP14, MOSI: GP15, CS: GP10, DC: GP13, RST: GP3
 
-- **Flash:** 2MB - 256 bytes (BOOT2 bootloader)
-- **RAM:** 264KB
-- **Build profile:** Optimized for size with full LTO
-- Use `heapless::Vec` instead of `std::Vec` (no heap allocator)
-- Static allocation via `static_cell::StaticCell` for task-owned resources
-
-### Pin Configuration
-
-**Keyboard Matrix:**
-- Rows: GP9, GP8, GP7, GP6, GP5, GP4
-- Columns: GP26, GP27, GP28, GP29
-
-**OLED (SPI1):**
-- SCK: GP14, MOSI: GP15, CS: GP10
-- DC: GP13, RST: GP3
-
-## Development Guidelines
-
-### Adding New Tasks
-
-1. Create module in `src/tasks/`
-2. Define task function with `#[embassy_executor::task]` attribute
-3. Add init function that spawns task via `Spawner`
-4. Export from `tasks/mod.rs`
-5. Call init from `main.rs` before entering main loop
-
-### Memory Management
-
-- Use `StaticCell` for 'static references needed by tasks
-- Prefer `heapless` collections with compile-time size bounds
-- Check size impact with `./memory-usage.sh -v` after changes
-- Use `portable_atomic` for lock-free state sharing between tasks
-
-### Display Updates
-
-```rust
-use crate::tasks::DisplayProxy;
-use embedded_graphics::prelude::*;
-
-let mut display = DisplayProxy::new();
-display.clear(BinaryColor::Off).unwrap();
-// ... draw operations ...
-display.flush().unwrap();  // Commit changes to screen
+**Keymap** (6 rows × 4 cols):
+```
+Row 0: F1    F2   F3   F4
+Row 1: Lock  Div  Mul  Sub
+Row 2: 7     8    9    NC
+Row 3: 4     5    6    Add
+Row 4: 1     2    3    NC
+Row 5: NC    0    Dot  Enter
 ```
 
-### Keyboard Events
+### DisplayProxy Pattern
 
-```rust
-use crate::tasks::{KEYPAD_CHANNEL, KeyEvent, key_pressed, Key};
+`DisplayProxy` is a channel-backed draw target that implements `embedded_graphics::DrawTarget`. It sends drawing commands to the display task instead of blocking on SPI operations. Always call `flush()` after drawing to send the framebuffer to the display.
 
-// Subscribe to events
-let mut sub = KEYPAD_CHANNEL.subscriber().unwrap();
-while let WaitResult::Message(event) = sub.next_message().await {
-    // Handle event.key and event.pressed
-}
+### Debouncing
 
-// Query current state synchronously
-if key_pressed(Key::F1) {
-    // F1 is currently held down
-}
-```
+Key state changes go through `Debounce<bool>` with 10ms delay. The debouncer tracks measured value and timestamp, only updating the stable value after delay expires.
 
-### Logging
+## Key Implementation Details
 
-USB CDC-ACM logger is initialized automatically. Use standard `log` macros:
+- **Static cells**: Global resources use `StaticCell` for safe one-time initialization
+- **Atomic state**: Keypad state stored in 2D `AtomicBool` array for lock-free `key_pressed()` queries
+- **Inverse keymap**: `KEYMAP_INV` provides O(1) Key enum to (row, col) lookup for state queries
+- **Memory layout**: `memory.x` defines RP2040 flash/RAM regions and boot2 section
+- **Linker flags**: Uses `flip-link` for stack overflow protection, links `defmt.x` for logging
+- **Profile**: Release uses LTO, opt-level "z" (size), codegen-units 1 for minimal binary size
 
-```rust
-use log::{info, warn, error};
-info!("Message");  // Sent over USB serial
-```
+## Adding a New Mode
 
-Note: Logger requires ~2 seconds after boot to enumerate and become ready.
+1. Create `src/modes/{name}.rs` with a struct implementing `Mode` trait
+2. Add variant to `CurrentMode` enum in `modes/mod.rs`
+3. Update `mode_handler_task()` match to instantiate your mode
+4. Assign an F-key (F1-F4) in `mode_switcher_task()` match
 
 ## Common Patterns
 
-### Debouncing Inputs
-
+**Publishing key events**:
 ```rust
-use crate::utils::debounce::Debounce;
-let mut debouncer = Debounce::new(false, Duration::from_millis(10));
-if debouncer.measure(new_value) {
-    // Value changed and stabilized
-}
+KEYPAD_CHANNEL.publisher().unwrap().publish_immediate(event);
 ```
 
-### Inter-Task Communication
-
-- **One-to-one:** Use `Channel<Mutex, T, CAPACITY>`
-- **Broadcast:** Use `PubSubChannel` with multiple subscribers
-- **Shared state:** Use `portable_atomic` types with `Ordering::Relaxed`
-
-### Rebooting to BOOTSEL Mode
-
+**Subscribing to key events**:
 ```rust
-use embassy_rp::rom_data::reset_to_usb_boot;
-reset_to_usb_boot(0, 0);  // Reboot for flashing via UF2
+let mut receiver = KEYPAD_CHANNEL.subscriber().unwrap();
+if let WaitResult::Message(event) = receiver.next_message().await { ... }
 ```
 
-## Troubleshooting
+**Sending HID events**:
+```rust
+HID_CHANNEL.sender().send(HidEvent::SetKey(keycode)).await;
+```
 
-- **Linker errors:** Ensure `flip-link` is installed and `thumbv6m-none-eabi` target added
-- **Memory overflow:** Check `./memory-usage.sh`, reduce buffer sizes in `heapless` collections
-- **Display artifacts:** Ensure `flush()` is called after drawing operations
-- **Keys not registering:** Verify debounce threshold and matrix wiring
-- **USB not working:** Wait 2s after boot for enumeration, check cable supports data
+**Drawing to display**:
+```rust
+let mut display = DisplayProxy::new();
+display.clear(BinaryColor::Off).unwrap();
+Text::new("Hello", Point::new(5, 38), text_style).draw(&mut display).unwrap();
+display.flush().unwrap();
+```
