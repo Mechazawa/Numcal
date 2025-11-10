@@ -35,7 +35,7 @@ pub async fn reboot_hotkey_task() {
                 continue;
             }
 
-            if REBOOT_KEYS.iter().all(|key| key_pressed(event.key)) {
+            if REBOOT_KEYS.iter().all(|key| key_pressed(key.clone())) {
                 break;
             }
         }

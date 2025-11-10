@@ -3,7 +3,6 @@
 mod tasks;
 mod utils;
 
-use cortex_m::Peripherals;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use embassy_rp::config::Config;
@@ -11,8 +10,7 @@ use embedded_graphics::Drawable;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::{DrawTarget, Point, Primitive, Size};
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
+use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
 use {defmt_rtt as _, panic_probe as _};
 use log::info;

@@ -63,6 +63,7 @@ static STATE: [[AtomicBool; COLS]; ROWS] = [
     [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
 ];
 
+const KEYMAP_INV: [Option<(u8, u8)>; KEY_COUNT] = build_inverse_keymap();
 const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::F1, Key::F2, Key::F3, Key::F4],
     [Key::LOCK, Key::DIV, Key::MUL, Key::SUB],
@@ -71,6 +72,29 @@ const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::D1, Key::D2, Key::D3, Key::NC],
     [Key::NC, Key::D0, Key::DOT, Key::ENTER],
 ];
+
+const fn build_inverse_keymap() -> [Option<(u8, u8)>; KEY_COUNT] {
+    let mut result = [None; KEY_COUNT];
+
+    let mut row = 0;
+    while row < ROWS {
+        let mut col = 0;
+        while col < COLS {
+            let key = KEYMAP[row][col];
+            let key_idx = key as usize;
+
+            // Only set if not already set (handles duplicate keys)
+            if result[key_idx].is_none() {
+                result[key_idx] = Some((row as u8, col as u8));
+            }
+
+            col += 1;
+        }
+        row += 1;
+    }
+
+    result
+}
 
 pub async fn init(
     spawner: &Spawner,
@@ -129,14 +153,11 @@ pub async fn keyboard_task(
 }
 
 pub fn key_pressed(key: Key) -> bool {
-    // Todo improve the lookup
-    for col in 0..COLS {
-        for row in 0..ROWS {
-            if KEYMAP[row][col] == key {
-                return STATE[row][col].load(Ordering::Relaxed);
-            }
-        }
+    if key as usize >= KEYMAP.len() {
+        false
+    } else if let Some((row, col)) = KEYMAP_INV[key as usize] {
+        STATE[row as usize][col as usize].load(Ordering::Relaxed)
+    } else {
+        false
     }
-
-    false
 }
