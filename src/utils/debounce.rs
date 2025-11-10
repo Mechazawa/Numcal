@@ -14,7 +14,7 @@ impl<T> Debounce<T> where T: Clone + PartialEq<T> {
         Self {
             value: initial.clone(),
             delay,
-            measured_value: initial.clone(),
+            measured_value: initial,
             measured_at: Instant::now(),
         }
     }
