@@ -31,11 +31,11 @@ pub async fn reboot_hotkey_task() {
                 continue;
             }
 
-            if !REBOOT_KEYS.iter().any(|key| event.key == *key) {
+            if !REBOOT_KEYS.contains(&event.key) {
                 continue;
             }
 
-            if REBOOT_KEYS.iter().all(|key| key_pressed(key.clone())) {
+            if REBOOT_KEYS.iter().all(|key| key_pressed(*key)) {
                 break;
             }
         }

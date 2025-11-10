@@ -15,13 +15,13 @@ pub enum Key {
     F2,
     F3,
     F4,
-    LOCK,
-    DIV,
-    MUL,
-    SUB,
-    ADD,
-    ENTER,
-    DOT,
+    Lock,
+    Div,
+    Mul,
+    Sub,
+    Add,
+    Enter,
+    Dot,
     D0,
     D1,
     D2,
@@ -66,11 +66,11 @@ static STATE: [[AtomicBool; COLS]; ROWS] = [
 const KEYMAP_INV: [Option<(u8, u8)>; KEY_COUNT] = build_inverse_keymap();
 const KEYMAP: [[Key; COLS]; ROWS] = [
     [Key::F1, Key::F2, Key::F3, Key::F4],
-    [Key::LOCK, Key::DIV, Key::MUL, Key::SUB],
+    [Key::Lock, Key::Div, Key::Mul, Key::Sub],
     [Key::D7, Key::D8, Key::D9, Key::NC],
-    [Key::D4, Key::D5, Key::D6, Key::ADD],
+    [Key::D4, Key::D5, Key::D6, Key::Add],
     [Key::D1, Key::D2, Key::D3, Key::NC],
-    [Key::NC, Key::D0, Key::DOT, Key::ENTER],
+    [Key::NC, Key::D0, Key::Dot, Key::Enter],
 ];
 
 const fn build_inverse_keymap() -> [Option<(u8, u8)>; KEY_COUNT] {
@@ -134,9 +134,9 @@ pub async fn keyboard_task(
                     events.push(KeyEvent {key, pressed}).unwrap();
 
                     if pressed {
-                        info!("DOWN [{row_idx}][{col_idx}] {:?}", key);
+                        info!("DOWN [{row_idx}][{col_idx}] {key:?}");
                     } else {
-                        info!("UP   [{row_idx}][{col_idx}] {:?}", key);
+                        info!("UP   [{row_idx}][{col_idx}] {key:?}");
                     }
                 }
             }
