@@ -44,7 +44,7 @@ pub enum DisplayAction<C = BinaryColor> where C: PixelColor {
 }
 
 static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
-static DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(128, 64));
+pub const DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(128, 64));
 pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 64> = Channel::new();
 
 pub async fn init(

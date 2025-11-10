@@ -128,7 +128,7 @@ pub async fn keyboard_task(
     }
 }
 
-pub fn pressed(key: Key) -> bool {
+pub fn key_pressed(key: Key) -> bool {
     // Todo improve the lookup
     for col in 0..COLS {
         for row in 0..ROWS {

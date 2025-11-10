@@ -19,7 +19,7 @@ use log::info;
 
 use tasks::init_usb;
 use tasks::init_display;
-use crate::tasks::{init_keypad, DisplayProxy};
+use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -56,6 +56,8 @@ async fn main(spawner: Spawner) {
         peripherals.PIN_29.into(),
     ]).await;
 
+    init_hotkeys(&spawner).await;
+
     show_text("Ready");
 
     // Wait for USB to enumerate and logger to be ready
@@ -86,8 +88,6 @@ async fn main(spawner: Spawner) {
 
 fn show_text(text: &str) {
     let mut display = DisplayProxy::new();
-
-    display.clear(BinaryColor::Off).unwrap();
 
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_6X10)
