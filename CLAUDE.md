@@ -4,183 +4,197 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NumCal is an RP2040-based custom keyboard firmware using the Embassy async framework. It features a 4x6 keyboard matrix, SSD1305 OLED display (128x32), and USB HID keyboard support.
+NumCal is an embedded Rust firmware for a custom numpad/calculator device running on the RP2040 microcontroller (Raspberry Pi Pico). It uses Embassy (async embedded framework) to manage concurrent tasks for USB HID, keyboard matrix scanning, OLED display updates, and hotkey detection.
 
-## Essential Build Commands
+**Key Technologies:**
+- **Target:** `thumbv6m-none-eabi` (ARM Cortex-M0+)
+- **Runtime:** Embassy async executor with cooperative multitasking
+- **Display:** SSD1306 128x64 OLED (SPI interface)
+- **USB:** CDC-ACM for logging + USB HID (planned)
+- **Build:** Optimized for size (`opt-level = "z"`, LTO enabled)
 
-### Building
+## Essential Commands
+
+### Building & Flashing
+
 ```bash
-# Release build (optimized for size with "z" optimization)
+# Build release version (optimized for size)
 cargo build --release
+
+# Build and flash automatically (requires picotool)
+cargo run --release
 
 # Development build
 cargo build
+
+# Analyze memory usage
+./memory-usage.sh          # Basic report
+./memory-usage.sh -v       # Verbose with top consumers
 ```
 
-### Flashing to Hardware
+### Size Analysis Tools
 
-**Method 1: picotool (Recommended - configured as default runner)**
 ```bash
-# Put RP2040 in bootloader mode first (hold BOOTSEL, connect USB, release)
-cargo run --release
+# Section sizes
+cargo size --release -- -A
+
+# Top code size contributors
+cargo bloat --release -n 10
+
+# RAM usage analysis
+cargo bloat --release -n 10 --data
+
+# Symbol sizes
+rust-nm --print-size --size-sort --radix=d target/thumbv6m-none-eabi/release/numcal
 ```
 
-**Method 2: UF2 manual flash**
-```bash
-cargo build --release
-elf2uf2-rs target/thumbv6m-none-eabi/release/numcal numcal.uf2
-# Drag-drop numcal.uf2 to RPI-RP2 drive
-```
+### Flashing Methods
 
-**Method 3: With debug probe**
-```bash
-# Change runner in .cargo/config.toml to: probe-rs run --chip RP2040
-cargo run --release
-```
-
-## Critical Build Configuration
-
-### Embassy Framework Requirements
-- **MUST** include `critical-section-impl` feature in embassy-rp - Cortex-M0+ lacks native atomics
-- Boot2 bootloader is statically embedded via `BOOT2` constant in main.rs using `rp2040-boot2` crate
-- `memory.x` defines BOOT2, FLASH, and RAM regions - do NOT duplicate linker args in build.rs
-
-### Dependency Compatibility
-- ssd1306 version 0.10+ required for embedded-hal 1.0 compatibility
-- SPI devices must be wrapped with `ExclusiveDevice` from `embedded-hal-bus` before use with display drivers
-- `portable-atomic` with `critical-section` feature required for Cortex-M0+ atomic operations
-
-### Linker Configuration
-- Linker args (-Tlink.x, -Tdefmt.x) are in `.cargo/config.toml` ONLY - do NOT duplicate in build.rs
-- Uses `flip-link` for stack overflow protection
-- Build target is `thumbv6m-none-eabi` (Cortex-M0+)
-
-## Hardware Pin Assignments
-
-### Critical SPI1 Pins (validated for RP2040)
-- CLK: GP14 (not GP15 - that's MOSI)
-- MOSI: GP15 (not GP16 - invalid for SPI1)
-- CS: GP10
-- DC: GP13
-- RST: GP3
-
-### Keyboard Matrix
-- Rows (outputs, active-low): GP9, GP8, GP7, GP6, GP5, GP4
-- Columns (inputs, pull-up): GP26, GP27, GP28, GP29
-
-To change pins, modify spawner calls in `main()` function (src/main.rs:80-89).
+1. **Automatic (recommended):** `cargo run --release` uses `flash.sh` which auto-reboots device via picotool
+2. **Manual UF2:** Build, convert with `elf2uf2-rs`, drag-drop to RPI-RP2 drive
+3. **Debug probe:** Use `probe-rs` if hardware debugger is connected
 
 ## Architecture
 
-### Async Task Structure
-The firmware uses Embassy's cooperative multitasking with independent tasks:
+### Task-Based Concurrency
 
-1. **keyboard_task** (src/keyboard.rs) - Matrix scanner with debouncing
-   - Scans 4x6 matrix by driving rows LOW sequentially
-   - 10ms software debounce (configurable via `DEBOUNCE_MS` constant)
-   - Sends key events to USB and display tasks via channels
+The firmware uses Embassy's executor to run multiple cooperative tasks simultaneously:
 
-2. **display_task** (src/display.rs) - OLED management
-   - Renders text to SSD1305 OLED via SPI at 8MHz
-   - Uses ssd1306 driver with ExclusiveDevice wrapper
-   - Receives display updates via channel
+1. **USB Device Task** (`tasks/usb.rs`) - Handles USB enumeration and CDC-ACM logging
+2. **Display Task** (`tasks/display.rs`) - Asynchronous display rendering via channel
+3. **Keypad Task** (`tasks/keypad.rs`) - Matrix scanning with debouncing, publishes key events
+4. **Hotkey Task** (`tasks/hotkeys.rs`) - Monitors F1+F2+F3+F4 combo for BOOTSEL reboot
 
-3. **usb_device_task** (src/usb.rs) - USB device manager
-   - Runs the USB device stack
+Tasks communicate via:
+- **Channels** (`embassy_sync::channel`) for display commands
+- **PubSub** (`embassy_sync::pubsub`) for keyboard events
 
-4. **usb_hid_task** (src/usb.rs) - USB HID keyboard
-   - Creates USB HID keyboard interface (VID: 0x16c0, PID: 0x27dd)
-   - Sends HID keyboard reports based on key events
+### Display Architecture
 
-5. **logger_task** (src/main.rs) - USB serial logging
-   - Provides USB CDC-ACM serial port for logging
-   - Outputs `log` crate messages to serial console
+The display uses a proxy pattern to allow any task to draw without blocking:
 
-Tasks are spawned in main() and run concurrently. The main task keeps the executor alive with a 60-second sleep loop.
+- `DisplayProxy` implements `DrawTarget` from `embedded-graphics`
+- Drawing commands are buffered into `DisplayAction` enums and sent via channel
+- The dedicated display task processes commands and calls the SSD1306 driver
+- This prevents SPI bus contention and allows non-blocking graphics updates
 
-### Keymap Configuration
-The `KEYMAP` constant (src/main.rs:45-52) maps matrix positions [row][col] to USB HID keycodes. It's a 2D array indexed by row then column. Use 0x00 for unused keys.
+### Keyboard Matrix Scanning
 
-Example: `KEYMAP[0][0] = 0x27` maps row 0, col 0 to HID keycode 0x27 (numpad 0).
+6 rows × 4 columns = 24 keys total:
+- **Rows** (GP4-GP9): Output pins, driven low sequentially
+- **Columns** (GP26-GP29): Input pins with pull-ups
 
-Reference: https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf
+Scanning process:
+1. Set one row low, others high
+2. Read all column pins (low = pressed)
+3. Debounce using `Debounce<bool>` utility (10ms threshold)
+4. Publish `KeyEvent` to PubSub channel on state changes
+5. Store state in atomic bool array for synchronous `key_pressed()` queries
 
-## Common Development Tasks
+### Memory Constraints
 
-### Customizing the Keymap
-Edit the `KEYMAP` constant in src/main.rs:45-52. Each byte is a USB HID keycode.
+- **Flash:** 2MB - 256 bytes (BOOT2 bootloader)
+- **RAM:** 264KB
+- **Build profile:** Optimized for size with full LTO
+- Use `heapless::Vec` instead of `std::Vec` (no heap allocator)
+- Static allocation via `static_cell::StaticCell` for task-owned resources
 
-### Adjusting Debounce Time
-Modify `DEBOUNCE_MS` constant in src/main.rs:41 (default: 10ms).
+### Pin Configuration
 
-### Viewing Logs
-Logs use the `log` crate with USB serial transport via `embassy-usb-logger`. No debug probe required!
+**Keyboard Matrix:**
+- Rows: GP9, GP8, GP7, GP6, GP5, GP4
+- Columns: GP26, GP27, GP28, GP29
 
-**Viewing logs:**
-1. Flash the firmware: `cargo run --release`
-2. Device enumerates as both a USB HID keyboard and USB serial port
-3. Connect to serial port (typically `/dev/tty.usbmodem*` on macOS):
-   ```bash
-   screen /dev/tty.usbmodem* 115200
-   # or
-   minicom -D /dev/tty.usbmodem*
-   ```
+**OLED (SPI1):**
+- SCK: GP14, MOSI: GP15, CS: GP10
+- DC: GP13, RST: GP3
 
-Logs use standard `log` macros: `log::info!()`, `log::error!()`, `log::debug!()`, etc.
-Log level is configured in `logger_task()` (default: `Info`).
+## Development Guidelines
 
-### Binary Size
-Target size: ~1.2MB (fits in 2MB flash). Release profile uses:
-- `opt-level = "z"` - optimize for size
-- `lto = true` - link-time optimization
-- `codegen-units = 1` - single codegen unit
+### Adding New Tasks
 
-## Important Implementation Notes
+1. Create module in `src/tasks/`
+2. Define task function with `#[embassy_executor::task]` attribute
+3. Add init function that spawns task via `Spawner`
+4. Export from `tasks/mod.rs`
+5. Call init from `main.rs` before entering main loop
 
-### Embassy Boot2 Integration
-- The RP2040 requires a 256-byte boot2 bootloader in the first flash sector
-- This is provided via `pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080`
-- W25Q080 variant matches most RP2040 boards' flash chips
-- The linker script places this in the BOOT2 memory region
+### Memory Management
 
-### SPI Device Wrapping Pattern
-Embassy-rp's SPI implements embedded-hal 1.0's `SpiBus` trait but NOT `SpiDevice`. Display drivers need `SpiDevice`, so wrap with:
+- Use `StaticCell` for 'static references needed by tasks
+- Prefer `heapless` collections with compile-time size bounds
+- Check size impact with `./memory-usage.sh -v` after changes
+- Use `portable_atomic` for lock-free state sharing between tasks
+
+### Display Updates
+
 ```rust
-let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
+use crate::tasks::DisplayProxy;
+use embedded_graphics::prelude::*;
+
+let mut display = DisplayProxy::new();
+display.clear(BinaryColor::Off).unwrap();
+// ... draw operations ...
+display.flush().unwrap();  // Commit changes to screen
 ```
 
-### Cortex-M0+ Limitations
-- No native atomic CAS operations
-- Requires `critical-section-impl` feature in embassy-rp
-- Requires `portable-atomic` with `critical-section` feature
-- Cannot use probe-rs for flashing by default (picotool is preferred)
+### Keyboard Events
 
-## Known Issues and Gotchas
+```rust
+use crate::tasks::{KEYPAD_CHANNEL, KeyEvent, key_pressed, Key};
 
-- The firmware uses USB composite device (HID + CDC-ACM). Some older USB hosts may have issues with composite devices.
-- USB serial logs only appear after the USB device is fully enumerated (takes ~1-2 seconds after reset).
-- Early boot logs (before USB is initialized) are not visible. Consider keeping `defmt` for probe-based debugging if needed.
+// Subscribe to events
+let mut sub = KEYPAD_CHANNEL.subscriber().unwrap();
+while let WaitResult::Message(event) = sub.next_message().await {
+    // Handle event.key and event.pressed
+}
 
-## Project Structure
-
-```
-src/main.rs          - Main entry point, USB setup, logger task
-src/keyboard.rs      - Keyboard matrix scanning and state management
-src/display.rs       - OLED display rendering task
-src/usb.rs           - USB HID keyboard tasks
-src/modes/           - Keyboard modes (numpad, calculator, etc.)
-Cargo.toml           - Dependencies with embassy-rp features
-memory.x             - RP2040 memory layout (BOOT2, FLASH, RAM)
-build.rs             - Copies memory.x to build output
-.cargo/config.toml   - Target config, runner (picotool), rustflags
+// Query current state synchronously
+if key_pressed(Key::F1) {
+    // F1 is currently held down
+}
 ```
 
-## Logging Implementation
+### Logging
 
-The firmware uses `embassy-usb-logger` to provide USB serial logging without requiring a debug probe:
+USB CDC-ACM logger is initialized automatically. Use standard `log` macros:
 
-- **Logger crate**: Uses standard `log` crate macros (`log::info!()`, `log::error!()`, etc.)
-- **USB CDC-ACM**: Creates a second USB interface (serial port) alongside the HID keyboard
-- **Composite device**: Both HID keyboard and serial port work simultaneously
-- **Buffer size**: 1024 bytes (configurable in `logger_task()`)
-- **Log level**: Default is `Info` (configurable in `logger_task()`)
+```rust
+use log::{info, warn, error};
+info!("Message");  // Sent over USB serial
+```
+
+Note: Logger requires ~2 seconds after boot to enumerate and become ready.
+
+## Common Patterns
+
+### Debouncing Inputs
+
+```rust
+use crate::utils::debounce::Debounce;
+let mut debouncer = Debounce::new(false, Duration::from_millis(10));
+if debouncer.measure(new_value) {
+    // Value changed and stabilized
+}
+```
+
+### Inter-Task Communication
+
+- **One-to-one:** Use `Channel<Mutex, T, CAPACITY>`
+- **Broadcast:** Use `PubSubChannel` with multiple subscribers
+- **Shared state:** Use `portable_atomic` types with `Ordering::Relaxed`
+
+### Rebooting to BOOTSEL Mode
+
+```rust
+use embassy_rp::rom_data::reset_to_usb_boot;
+reset_to_usb_boot(0, 0);  // Reboot for flashing via UF2
+```
+
+## Troubleshooting
+
+- **Linker errors:** Ensure `flip-link` is installed and `thumbv6m-none-eabi` target added
+- **Memory overflow:** Check `./memory-usage.sh`, reduce buffer sizes in `heapless` collections
+- **Display artifacts:** Ensure `flush()` is called after drawing operations
+- **Keys not registering:** Verify debounce threshold and matrix wiring
+- **USB not working:** Wait 2s after boot for enumeration, check cable supports data
