@@ -45,7 +45,7 @@ pub enum DisplayAction<C = BinaryColor> where C: PixelColor {
 
 static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
 static DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(128, 64));
-pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 128> = Channel::new();
+pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 64> = Channel::new();
 
 pub async fn init(
     spawner: &Spawner,
@@ -116,7 +116,7 @@ async fn display_task(display: &'static mut DisplayType) {
     }
 }
 
-pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 128> where T: RawMutex, C: PixelColor {
+pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 64> where T: RawMutex, C: PixelColor {
     channel: Sender<'u, T, DisplayAction<C>, CN>,
 }
 
