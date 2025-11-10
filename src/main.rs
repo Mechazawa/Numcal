@@ -2,6 +2,7 @@
 #![no_main]
 mod tasks;
 mod utils;
+mod modes;
 
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
@@ -13,6 +14,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
 use core::fmt::Write;
+use embassy_time::Timer;
 use tasks::init_usb;
 use tasks::init_display;
 use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy, HidEvent, HID_CHANNEL, KEYPAD_CHANNEL};
@@ -56,31 +58,9 @@ async fn main(spawner: Spawner) {
 
     show_text("Ready");
 
-    // Temporary numpad mode
-    let mut keypad_receiver = KEYPAD_CHANNEL.subscriber().unwrap();
-    let hid_sender = HID_CHANNEL.sender();
-
-    hid_sender.send(HidEvent::Reset).await;
-
+    // Busy loop
     loop {
-        if let WaitResult::Message(event) = keypad_receiver.next_message().await {
-            if let Some(keycode) = event.key.into_hid_keycode() {
-                if event.pressed {
-                    hid_sender.send(HidEvent::SetKey(keycode)).await;
-                } else {
-                    hid_sender.send(HidEvent::ReleaseKey(keycode)).await;
-                }
-            }
-
-
-            let mut str = heapless::String::<32>::new();
-
-            if let Ok(()) = write!(&mut str, "{} {:?}", if event.pressed {"PRESS "} else {"RELEASE "}, event.key) {
-                show_text(&str);
-            } else {
-                show_text("Whoops");
-            }
-        }
+        Timer::after_secs(1).await;
     }
 }
 
