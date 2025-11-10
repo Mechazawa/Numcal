@@ -6,19 +6,17 @@ mod modes;
 
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
-use embassy_sync::pubsub::WaitResult;
 use embedded_graphics::Drawable;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
-use core::fmt::Write;
 use embassy_time::Timer;
 use tasks::init_usb;
 use tasks::init_display;
 use crate::modes::init_mode_handler;
-use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy, HidEvent, HID_CHANNEL, KEYPAD_CHANNEL};
+use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

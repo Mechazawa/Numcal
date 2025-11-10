@@ -24,10 +24,7 @@ impl Mode for NumpadMode {
 
         while MODE_RUNNING.load(Ordering::Relaxed) {
             if let WaitResult::Message(event) = keypad.next_message().await {
-                if match event.key {
-                    Key::F1 | Key::F2 | Key::F3 | Key::F4 => true,
-                    _ => false,
-                } {
+                if matches!(event.key, Key::F1 | Key::F2 | Key::F3 | Key::F4) {
                     continue;
                 }
 
