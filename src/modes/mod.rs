@@ -67,7 +67,7 @@ async fn mode_handler_task() {
         mode.task().await;
 
         mode = match TARGET_MODE.load(Ordering::Relaxed) {
-            0 => CurrentMode::Numpad(NumpadMode::new()),
+            0 => NumpadMode::new().into(),
             _ => mode,
         };
     }

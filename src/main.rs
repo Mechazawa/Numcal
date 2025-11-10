@@ -17,6 +17,7 @@ use core::fmt::Write;
 use embassy_time::Timer;
 use tasks::init_usb;
 use tasks::init_display;
+use crate::modes::init_mode_handler;
 use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy, HidEvent, HID_CHANNEL, KEYPAD_CHANNEL};
 
 #[embassy_executor::main]
@@ -55,6 +56,7 @@ async fn main(spawner: Spawner) {
     ]).await;
 
     init_hotkeys(&spawner).await;
+    init_mode_handler(&spawner).await;
 
     show_text("Ready");
 
