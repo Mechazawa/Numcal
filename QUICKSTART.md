@@ -103,16 +103,3 @@ After flashing:
 
 **Issue:** USB device not recognized
 - Solution: Try a different USB cable (must support data, not just power)
-
-## Next Steps
-
-- Customize the keymap in `src/main.rs` (search for `KEYMAP`)
-- Modify display content in the `display_task()` function
-- Add layers or macros to enhance functionality
-- Implement key press indicators on the display
-
-## Learning Resources
-
-- [Embassy Documentation](https://embassy.dev)
-- [RP2040 Datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
-- [USB HID Usage Tables](https://www.usb.org/hid)
