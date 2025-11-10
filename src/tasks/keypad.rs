@@ -2,13 +2,15 @@ use crate::utils::debounce::Debounce;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Pull, Output, Input, AnyPin};
 use embassy_rp::Peri;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::{Duration, Timer};
 use log::info;
 use portable_atomic::{AtomicBool, Ordering};
 use static_cell::StaticCell;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Key {
+pub enum Key {
     F1,
     F2,
     F3,
@@ -33,14 +35,23 @@ enum Key {
     NC,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KeyEvent {
+    pub key: Key,
+    pub pressed: bool,
+}
+
 const ROWS: usize = 6;
 const COLS: usize = 4;
+const KEY_COUNT: usize = ROWS * COLS;
 const DEBOUNCE_DELAY: Duration = Duration::from_millis(10);
 const LOOP_DELAY: Duration = Duration::from_millis(2);
 
 static ROWS_CELL: StaticCell<[Output<'static>; ROWS]> = StaticCell::new();
 static COLS_CELL: StaticCell<[Input<'static>; COLS]> = StaticCell::new();
 static DEBOUNCE_CELL: StaticCell<[[Debounce<bool>; COLS]; ROWS]> = StaticCell::new();
+
+pub static KEYPAD_CHANNEL: PubSubChannel<CriticalSectionRawMutex, KeyEvent, 32, 10, 1> = PubSubChannel::new();
 
 // todo not great but does the trick
 static STATE: [[AtomicBool; COLS]; ROWS] = [
@@ -79,7 +90,11 @@ pub async fn keyboard_task(
     cols: &'static [Input<'static>; COLS],
     debouncer: &'static mut [[Debounce<bool>; COLS]; ROWS],
 ) {
+    let publisher = KEYPAD_CHANNEL.publisher().unwrap();
+
     loop {
+        let mut events = heapless::Vec::<KeyEvent, KEY_COUNT>::new();
+
         for (row_idx, row_pin) in rows.iter_mut().enumerate() {
             row_pin.set_low();
 
@@ -92,6 +107,8 @@ pub async fn keyboard_task(
 
                     let key = KEYMAP[row_idx][col_idx];
 
+                    events.push(KeyEvent {key, pressed}).unwrap();
+
                     if pressed {
                         info!("DOWN [{row_idx}][{col_idx}] {:?}", key);
                     } else {
@@ -101,6 +118,10 @@ pub async fn keyboard_task(
             }
 
             row_pin.set_high();
+        }
+
+        for event in events {
+            publisher.publish_immediate(event);
         }
 
         Timer::after(LOOP_DELAY).await;
