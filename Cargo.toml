@@ -49,6 +49,7 @@ critical-section = "1.2"
 
 # RP2040 boot2 bootloader
 rp2040-boot2 = "0.3"
+enum_dispatch = "0.3.13"
 
 [profile.release]
 debug = 2

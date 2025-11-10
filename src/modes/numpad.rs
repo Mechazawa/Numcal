@@ -1,24 +1,29 @@
-use crate::modes::Mode;
+use crate::modes::{Mode, MODE_RUNNING};
 use crate::show_text;
 use crate::tasks::{HID_CHANNEL, HidEvent, KEYPAD_CHANNEL, Key};
-use portable_atomic::{AtomicBool, Ordering};
-use embassy_sync::pubsub::WaitResult;
+use portable_atomic::{Ordering};
+use embassy_sync::pubsub::{WaitResult};
+use core::fmt::Write;
 
-pub struct NumpadMode {}
+pub struct NumpadMode {
+}
+
+impl NumpadMode {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
 
 impl Mode for NumpadMode {
-    fn new() -> Self {
-        Self {}
-    }
+    async fn task(&mut self) {
+        let mut keypad = KEYPAD_CHANNEL.subscriber().unwrap();
+        let hid = HID_CHANNEL.sender();
 
-    async fn task(running: AtomicBool) {
-        let mut keypad_receiver = KEYPAD_CHANNEL.subscriber().unwrap();
-        let hid_sender = HID_CHANNEL.sender();
+        hid.send(HidEvent::Reset).await;
 
-        hid_sender.send(HidEvent::Reset).await;
-
-        while running.load(Ordering::Relaxed) {
-            if let WaitResult::Message(event) = keypad_receiver.next_message().await {
+        while MODE_RUNNING.load(Ordering::Relaxed) {
+            if let WaitResult::Message(event) = keypad.next_message().await {
                 if match event.key {
                     Key::F1 | Key::F2 | Key::F3 | Key::F4 => true,
                     _ => false,
@@ -28,9 +33,9 @@ impl Mode for NumpadMode {
 
                 if let Some(keycode) = event.key.into_hid_keycode() {
                     if event.pressed {
-                        hid_sender.send(HidEvent::SetKey(keycode)).await;
+                        hid.send(HidEvent::SetKey(keycode)).await;
                     } else {
-                        hid_sender.send(HidEvent::ReleaseKey(keycode)).await;
+                        hid.send(HidEvent::ReleaseKey(keycode)).await;
                     }
                 }
 
