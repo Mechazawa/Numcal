@@ -3,9 +3,7 @@
 mod tasks;
 mod utils;
 
-use core::str::FromStr;
 use embassy_executor::Spawner;
-use embassy_time::Timer;
 use embassy_rp::config::Config;
 use embassy_sync::pubsub::WaitResult;
 use embedded_graphics::Drawable;
@@ -14,8 +12,6 @@ use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
-use {defmt_rtt as _, panic_probe as _};
-use log::info;
 use core::fmt::Write;
 use tasks::init_usb;
 use tasks::init_display;

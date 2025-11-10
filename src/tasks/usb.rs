@@ -90,7 +90,7 @@ impl LedState {
     }
 
     fn store(&self, state: u8) {
-        self.0.store(state, Ordering::Relaxed)
+        self.0.store(state, Ordering::Relaxed);
     }
 
     pub fn test(&self, led: KeyboardLed) -> bool {
