@@ -3,17 +3,19 @@ use embassy_executor::Spawner;
 use embassy_sync::pubsub::WaitResult;
 use enum_dispatch::enum_dispatch;
 use crate::modes::boot::BootMode;
+use crate::modes::calculator::CalculatorMode;
 use crate::modes::numpad::NumpadMode;
 use crate::tasks::{key_pressed, Key, KEYPAD_CHANNEL};
 
 mod numpad;
 mod boot;
+mod calculator;
 
 #[enum_dispatch]
 enum CurrentMode {
     BootMode,
     NumpadMode, // F1
-    // F2 (todo)
+    CalculatorMode, // F2
     // F3 (todo)
     // F4 (todo)
 }
