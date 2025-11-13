@@ -124,6 +124,8 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
         request_handler: Some(REQUEST_HANDLER_CELL.init(HidRequestHandler {})),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: embassy_usb::class::hid::HidSubclass::No,
+        hid_boot_protocol: embassy_usb::class::hid::HidBootProtocol::Keyboard,
     };
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, HID_STATE.init(HidState::new()), hid_config);
 
