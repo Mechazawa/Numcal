@@ -5,7 +5,7 @@ use embassy_rp::{bind_interrupts, Peri};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State as CdcState};
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State as HidState};
+use embassy_usb::class::hid::{HidReaderWriter, HidSubclass, HidBootProtocol, ReportId, RequestHandler, State as HidState};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config as UsbConfig};
 use portable_atomic::{AtomicU8, Ordering};
@@ -98,7 +98,7 @@ impl LedState {
     }
 }
 
-pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
+pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) -> Builder<'static, Driver<'static, USB>> {
     let mut config = UsbConfig::new(0x16c0, 0x27dd);
     config.manufacturer = Some("Mechazawa");
     config.product = Some("NumCal");
@@ -124,13 +124,22 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
         request_handler: Some(REQUEST_HANDLER_CELL.init(HidRequestHandler {})),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::Boot,
+        hid_boot_protocol: HidBootProtocol::Keyboard
     };
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, HID_STATE.init(HidState::new()), hid_config);
 
-    // Spawn device tasks
-    spawner.spawn(usb_device_task(builder.build()).unwrap());
+    // Spawn CDC and HID tasks
     spawner.spawn(logger_task(cdc).unwrap());
     spawner.spawn(hid_task(hid).unwrap());
+
+    // Return builder so file_system can add MSC interface
+    builder
+}
+
+pub async fn start_device(spawner: &Spawner, builder: Builder<'static, Driver<'static, USB>>) {
+    // Build and start USB device
+    spawner.spawn(usb_device_task(builder.build()).unwrap());
 }
 
 #[embassy_executor::task]

@@ -13,7 +13,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
 use embassy_time::Timer;
-use tasks::init_usb;
+use tasks::{init_usb, init_file_system, start_usb_device};
 use tasks::init_display;
 use crate::modes::init_mode_handler;
 use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy};
@@ -22,10 +22,17 @@ use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy};
 async fn main(spawner: Spawner) {
     let peripherals = embassy_rp::init(Config::default());
 
-    init_usb(
+    // Initialize USB and get builder
+    let mut usb_builder = init_usb(
         &spawner,
         peripherals.USB
     ).await;
+
+    // Initialize file system (adds MSC interface to USB builder)
+    init_file_system(&spawner, &mut usb_builder).ok();
+
+    // Start USB device with all interfaces
+    start_usb_device(&spawner, usb_builder).await;
 
     init_display(
         &spawner,
