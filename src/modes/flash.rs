@@ -1,11 +1,6 @@
 use embassy_time::Timer;
-use embedded_graphics::{Drawable, Pixel};
-use embedded_graphics::geometry::{Dimensions, Point};
-use embedded_graphics::mono_font::ascii::FONT_6X10;
-use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::{DrawTarget, PointsIter};
-use embedded_graphics::text::{Baseline, Text};
+use embedded_graphics::prelude::DrawTarget;
 use crate::modes::{Mode, MODE_RUNNING};
 use crate::tasks::DisplayProxy;
 use portable_atomic::{Ordering};

@@ -28,7 +28,7 @@ pub async fn init(spawner: &Spawner, watchdog_peripheral: Peri<'static, peripher
     watchdog.set_scratch(5, BOOTSEL_MAGIC_SCRATCH5);
     watchdog.set_scratch(6, BOOTSEL_MAGIC_SCRATCH6);
 
-    watchdog.start(Duration::from_secs(WATCHDOG_TIMEOUT_SECS as u64));
+    watchdog.start(Duration::from_secs(u64::from(WATCHDOG_TIMEOUT_SECS)));
 
     spawner.spawn(watchdog_task(watchdog).unwrap());
 }
