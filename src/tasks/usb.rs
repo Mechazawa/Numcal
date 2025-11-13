@@ -5,7 +5,7 @@ use embassy_rp::{bind_interrupts, Peri};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State as CdcState};
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State as HidState};
+use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State as HidState, Config as HidConfig, HidSubclass, HidBootProtocol};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config as UsbConfig};
 use portable_atomic::{AtomicU8, Ordering};
@@ -119,11 +119,13 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
     let cdc = CdcAcmClass::new(&mut builder, CDC_STATE.init(CdcState::new()), 64);
 
     // Create HID class for keyboard
-    let hid_config = embassy_usb::class::hid::Config {
+    let hid_config = HidConfig {
         report_descriptor: KeyboardReport::desc(),
         request_handler: Some(REQUEST_HANDLER_CELL.init(HidRequestHandler {})),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::Boot,
+        hid_boot_protocol: HidBootProtocol::Keyboard,
     };
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, HID_STATE.init(HidState::new()), hid_config);
 
