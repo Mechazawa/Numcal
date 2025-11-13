@@ -16,11 +16,13 @@ use embassy_time::Timer;
 use tasks::init_usb;
 use tasks::init_display;
 use crate::modes::init_mode_handler;
-use crate::tasks::{init_hotkeys, init_keypad, DisplayProxy};
+use crate::tasks::{init_hotkeys, init_keypad, init_watchdog, DisplayProxy};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let peripherals = embassy_rp::init(Config::default());
+
+    init_watchdog(&spawner, peripherals.WATCHDOG).await;
 
     init_usb(
         &spawner,
