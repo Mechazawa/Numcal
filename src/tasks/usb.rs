@@ -4,6 +4,7 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_rp::{bind_interrupts, Peri};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Timer};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State as CdcState};
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State as HidState};
 use embassy_usb::control::OutResponse;
@@ -46,6 +47,7 @@ static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
 static CDC_STATE: StaticCell<CdcState> = StaticCell::new();
+static CDC_MONITOR_STATE: StaticCell<CdcState> = StaticCell::new();
 static HID_STATE: StaticCell<HidState> = StaticCell::new();
 static REQUEST_HANDLER_CELL: StaticCell<HidRequestHandler> = StaticCell::new();
 
@@ -118,6 +120,9 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
     // Create CDC-ACM class for logging
     let cdc = CdcAcmClass::new(&mut builder, CDC_STATE.init(CdcState::new()), 64);
 
+    // Create second CDC-ACM class for 1200 baud monitoring
+    let cdc_monitor = CdcAcmClass::new(&mut builder, CDC_MONITOR_STATE.init(CdcState::new()), 64);
+
     // Create HID class for keyboard
     let hid_config = embassy_usb::class::hid::Config {
         report_descriptor: KeyboardReport::desc(),
@@ -130,6 +135,7 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
     // Spawn device tasks
     spawner.spawn(usb_device_task(builder.build()).unwrap());
     spawner.spawn(logger_task(cdc).unwrap());
+    spawner.spawn(baud_monitor_task(cdc_monitor).unwrap());
     spawner.spawn(hid_task(hid).unwrap());
 }
 
@@ -141,6 +147,57 @@ async fn usb_device_task(mut usb: embassy_usb::UsbDevice<'static, Driver<'static
 #[embassy_executor::task]
 async fn logger_task(class: CdcAcmClass<'static, Driver<'static, USB>>) {
     embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class).await;
+}
+
+/// Task to monitor for 1200 baud switch to trigger bootloader mode
+///
+/// This implements the Arduino-style auto-reset feature where setting
+/// the serial port to 1200 baud and then closing it triggers a reboot
+/// into BOOTSEL mode for flashing.
+#[embassy_executor::task]
+async fn baud_monitor_task(mut class: CdcAcmClass<'static, Driver<'static, USB>>) {
+    log::info!("1200 baud monitor task started");
+
+    loop {
+        // Wait for USB to be connected
+        class.wait_connection().await;
+
+        loop {
+            // Check line coding (baud rate, etc.)
+            let line_coding = class.line_coding();
+            let dtr = class.dtr();
+
+            // Check if baud rate is set to 1200
+            if line_coding.data_rate() == 1200 {
+                log::info!("1200 baud detected, waiting for DTR to drop...");
+
+                // Wait a bit to see if DTR drops (indicating disconnect)
+                Timer::after(Duration::from_millis(100)).await;
+
+                // Check if DTR is now low (disconnected)
+                if !class.dtr() {
+                    log::info!("DTR dropped at 1200 baud - rebooting to BOOTSEL mode");
+
+                    // Small delay to allow log message to be sent
+                    Timer::after(Duration::from_millis(10)).await;
+
+                    // Reboot to USB bootloader mode
+                    embassy_rp::rom_data::reset_to_usb_boot(0, 0);
+
+                    // Should never reach here
+                    unreachable!();
+                }
+            }
+
+            // Check again after a short delay
+            Timer::after(Duration::from_millis(50)).await;
+
+            // Break if disconnected
+            if !dtr && line_coding.data_rate() == 0 {
+                break;
+            }
+        }
+    }
 }
 
 #[embassy_executor::task]
