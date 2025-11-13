@@ -1,3 +1,5 @@
+use ssd1306::size::DisplaySize as DisplaySizeTrait;
+use display_interface::DisplayError;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output, Pin};
 use embassy_rp::peripherals::SPI1;
@@ -17,10 +19,26 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 use embassy_sync::channel::Channel;
 use embedded_graphics::Pixel;
+use ssd1306::command::Command;
+
+#[derive(Debug, Copy, Clone)]
+pub struct DisplaySize132x64;
+impl DisplaySizeTrait for DisplaySize132x64 {
+    const WIDTH: u8 = 132;
+    const HEIGHT: u8 = 64;
+    type Buffer = [u8; ((64*132)/8) as usize];
+
+    fn configure(
+        &self,
+        iface: &mut impl WriteOnlyDataCommand,
+    ) -> Result<(), DisplayError> {
+        Command::ComPinConfig(true, false).send(iface)
+    }
+}
 
 // Display
 type PinSpi = SPI1;
-type DisplaySize = DisplaySize128x64;
+type DisplaySize = DisplaySize132x64;
 type DisplayType = Ssd1306<
     SPIInterface<
         ExclusiveDevice<
@@ -44,7 +62,7 @@ pub enum DisplayAction<C = BinaryColor> where C: PixelColor {
 }
 
 static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
-pub const DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(128, 64));
+pub const DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(132, 64));
 pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 64> = Channel::new();
 
 pub async fn init(
@@ -77,10 +95,9 @@ pub async fn init(
     let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
     let interface = SPIInterface::new(spi_device, dc_pin);
 
-    // Initialize the SSD1306 driver (128x64)
-    info!("Creating display driver (128x64)...");
+    info!("Creating display driver ({}x{})...", DisplaySize::WIDTH, DisplaySize::HEIGHT);
     let display = DISPLAY.init(
-        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+        Ssd1306::new(interface, DisplaySize132x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode(),
     );
 
