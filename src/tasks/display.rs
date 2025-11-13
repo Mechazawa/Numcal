@@ -158,24 +158,29 @@ where
     where
         I: IntoIterator<Item=Pixel<Self::Color>>
     {
-        let pixels = heapless::Vec::from_iter(pixels);
+        let mut chunk: heapless::Vec<I::Item, DRAW_BUFFER_SIZE> = heapless::Vec::new();
 
-        while self.channel.is_full() {}
+        for pixel in pixels {
+            let _ = chunk.push(pixel);
 
-        self.channel.try_send(DisplayAction::Draw(pixels))?;
+            if (chunk.len() + 1) >= DRAW_BUFFER_SIZE {
+                self.channel.try_send(DisplayAction::Draw(chunk))?;
+                chunk = heapless::Vec::new();
+            }
+        }
+
+        if !chunk.is_empty() {
+            self.channel.try_send(DisplayAction::Draw(chunk))?;
+        }
 
         Ok(())
     }
 
     fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
-        while self.channel.is_full() {}
-
         self.channel.try_send(DisplayAction::FillSolid(*area, color))
     }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
-        while self.channel.is_full() {}
-
         self.channel.try_send(DisplayAction::Clear(color))
     }
 }

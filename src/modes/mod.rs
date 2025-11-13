@@ -4,10 +4,12 @@ use embassy_sync::pubsub::WaitResult;
 use enum_dispatch::enum_dispatch;
 use crate::modes::boot::BootMode;
 use crate::modes::numpad::NumpadMode;
+use crate::modes::flash::FlashMode;
 use crate::tasks::{key_pressed, Key, KEYPAD_CHANNEL};
 
 mod numpad;
 mod boot;
+mod flash;
 
 #[enum_dispatch]
 enum CurrentMode {
@@ -15,7 +17,7 @@ enum CurrentMode {
     NumpadMode, // F1
     // F2 (todo)
     // F3 (todo)
-    // F4 (todo)
+    FlashMode, // F4 (todo)
 }
 
 static MODE_RUNNING: AtomicBool = AtomicBool::new(true);
@@ -68,6 +70,7 @@ async fn mode_handler_task() {
 
         mode = match TARGET_MODE.load(Ordering::Relaxed) {
             0 => NumpadMode::new().into(),
+            3 => FlashMode::new().into(),
             _ => mode,
         };
     }
