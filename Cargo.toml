@@ -1,0 +1,63 @@
+[package]
+name = "numcal"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-2"
+
+[dependencies]
+# Embassy async runtime and HAL for RP2040 - using git to ensure version compatibility
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = ["arch-cortex-m", "executor-thread"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["log"] }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = ["log", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy.git", features = ["log"] }
+embassy-usb-logger = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", features = ["log"] }
+
+# Cortex-M support
+cortex-m = { version = "0.7", features = ["inline-asm"] }
+cortex-m-rt = "0.7"
+
+# Panic handler
+panic-probe = { version = "0.3" }
+
+# Logging
+defmt = "0.3"
+defmt-rtt = "0.4"
+log = "0.4"
+
+# Display drivers
+ssd1306 = "0.10"
+embedded-graphics = "0.8"
+embedded-hal-bus = { version = "0.2", features = ["defmt-03"] }
+
+# Static cell for USB buffer
+static_cell = "2.1"
+
+# Heapless for fixed-size data structures
+heapless = "0.8"
+
+# USB HID support
+usbd-hid = "0.8"
+
+# Fixed-point arithmetic for calculator
+fixed = "1.28"
+
+# Portable atomic with critical-section for Cortex-M0+
+portable-atomic = { version = "1.11", features = ["critical-section"] }
+critical-section = "1.2"
+
+# RP2040 boot2 bootloader
+rp2040-boot2 = "0.3"
+enum_dispatch = "0.3.13"
+
+[profile.release]
+debug = 2
+lto = true
+opt-level = "z"
+codegen-units = 1
+
+[profile.dev]
+debug = 2
+lto = false
+opt-level = 1
