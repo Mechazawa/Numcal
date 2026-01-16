@@ -3,6 +3,7 @@
 mod tasks;
 mod utils;
 mod modes;
+mod decimal;
 
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
