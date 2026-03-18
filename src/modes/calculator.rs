@@ -40,8 +40,6 @@ pub struct CalculatorMode {
     accumulator: CalcNumber,
     /// Pending operation waiting for right operand
     pending_op: Option<Op>,
-    /// Memory register
-    memory: CalcNumber,
     /// Error state (division by zero)
     error: bool,
 }
@@ -54,7 +52,6 @@ impl CalculatorMode {
             has_dot: false,
             accumulator: CalcNumber::zero(),
             pending_op: None,
-            memory: CalcNumber::zero(),
             error: false,
         }
     }
@@ -82,7 +79,6 @@ impl CalculatorMode {
         }
 
         if !self.inputting {
-            // Start fresh input after viewing a result
             self.input = CalcNumber::zero();
             self.has_dot = false;
             self.inputting = true;
@@ -93,10 +89,9 @@ impl CalculatorMode {
             self.input.digits.clear();
             self.input.digits.push(digit).ok();
         } else {
-            // Max display width check (~13 chars)
             let total_chars = self.input.digits.len()
-                + if self.has_dot { 1 } else { 0 }
-                + if self.input.negative { 1 } else { 0 };
+                + usize::from(self.has_dot)
+                + usize::from(self.input.negative);
             if total_chars >= 13 {
                 return;
             }
@@ -130,13 +125,11 @@ impl CalculatorMode {
         }
 
         if self.inputting && self.pending_op.is_some() {
-            // Chain: evaluate pending, then set new op
             self.evaluate();
             if self.error {
                 return;
             }
         } else if self.inputting {
-            // First operator: move input to accumulator
             self.accumulator = self.input.clone();
         }
 
@@ -163,12 +156,11 @@ impl CalculatorMode {
                 Op::Sub => CalcNumber::sub(&self.accumulator, &self.input),
                 Op::Mul => CalcNumber::mul(&self.accumulator, &self.input),
                 Op::Div => {
-                    match CalcNumber::div(&self.accumulator, &self.input) {
-                        Some(r) => r,
-                        None => {
-                            self.error = true;
-                            return;
-                        }
+                    if let Some(r) = CalcNumber::div(&self.accumulator, &self.input) {
+                        r
+                    } else {
+                        self.error = true;
+                        return;
                     }
                 }
             };
@@ -189,29 +181,6 @@ impl CalculatorMode {
         }
     }
 
-    fn memory_clear(&mut self) {
-        self.memory = CalcNumber::zero();
-    }
-
-    fn memory_recall(&mut self) {
-        if self.error {
-            return;
-        }
-        self.input = self.memory.clone();
-        self.inputting = true;
-        self.has_dot = self.input.decimal_places > 0;
-    }
-
-    fn memory_add(&mut self) {
-        let val = self.current_display_value().clone();
-        self.memory = CalcNumber::add(&self.memory, &val);
-    }
-
-    fn memory_sub(&mut self) {
-        let val = self.current_display_value().clone();
-        self.memory = CalcNumber::sub(&self.memory, &val);
-    }
-
     fn draw(&self, display: &mut DisplayProxy) {
         display.clear(BinaryColor::Off).unwrap();
 
@@ -229,13 +198,6 @@ impl CalculatorMode {
             .alignment(Alignment::Right)
             .baseline(Baseline::Top)
             .build();
-
-        // Memory indicator top-right
-        if !self.memory.is_zero() {
-            Text::with_text_style("M", Point::new(127, 33), small_style, right_top)
-                .draw(display)
-                .unwrap();
-        }
 
         // Main number display (or "Error")
         if self.error {
@@ -283,11 +245,9 @@ impl CalculatorMode {
             Key::Dot => self.press_dot(),
             Key::Add => self.press_operator(Op::Add),
             Key::Sub => {
-                // If no input and no pending op, negate; otherwise subtract
                 if self.inputting && self.input.is_zero() && self.input.digits.len() <= 1 && self.pending_op.is_none() {
                     self.press_negate();
                 } else if !self.inputting {
-                    // After result or operator, start negative number
                     self.input = CalcNumber::zero();
                     self.inputting = true;
                     self.has_dot = false;
@@ -300,11 +260,7 @@ impl CalculatorMode {
             Key::Div => self.press_operator(Op::Div),
             Key::Enter => self.press_enter(),
             Key::Lock => self.clear(),
-            Key::F1 => self.memory_clear(),
-            Key::F2 => self.memory_recall(),
-            Key::F3 => self.memory_add(),
-            Key::F4 => self.memory_sub(),
-            Key::NC => {}
+            Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::NC => {}
         }
     }
 }
@@ -315,7 +271,6 @@ impl Mode for CalculatorMode {
         let mut display = DisplayProxy::new();
         let mode_running = &super::MODE_RUNNING;
 
-        // Initial draw
         self.draw(&mut display);
 
         while mode_running.load(Ordering::Relaxed) {

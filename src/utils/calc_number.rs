@@ -1,3 +1,5 @@
+use core::cmp::Ordering;
+
 use heapless::Vec;
 
 const MAX_DIGITS: usize = 32;
@@ -23,9 +25,9 @@ impl CalcNumber {
     }
 
     fn trim_leading_zeros(&mut self) {
-        let integer_digits = self.digits.len() as u8 - self.decimal_places;
-        let mut leading = 0u8;
-        for &d in self.digits.iter() {
+        let integer_digits = self.digits.len() - usize::from(self.decimal_places);
+        let mut leading = 0usize;
+        for &d in &self.digits {
             if d == 0 && leading + 1 < integer_digits {
                 leading += 1;
             } else {
@@ -34,7 +36,7 @@ impl CalcNumber {
         }
         if leading > 0 {
             let mut trimmed: Vec<u8, MAX_DIGITS> = Vec::new();
-            for i in leading as usize..self.digits.len() {
+            for i in leading..self.digits.len() {
                 trimmed.push(self.digits[i]).ok();
             }
             self.digits = trimmed;
@@ -66,9 +68,9 @@ impl CalcNumber {
             s.push('-').ok();
         }
 
-        let integer_len = self.digits.len() as u8 - self.decimal_places;
+        let integer_len = self.digits.len() - usize::from(self.decimal_places);
         for (i, &d) in self.digits.iter().enumerate() {
-            if i == integer_len as usize && self.decimal_places > 0 {
+            if i == integer_len && self.decimal_places > 0 {
                 s.push('.').ok();
             }
             s.push((b'0' + d) as char).ok();
@@ -89,45 +91,46 @@ impl CalcNumber {
             bd.push(0).ok();
         }
 
-        let a_int = ad.len() as i32 - max_dp as i32;
-        let b_int = bd.len() as i32 - max_dp as i32;
+        let max_dp_usize = usize::from(max_dp);
+        let a_int = ad.len().saturating_sub(max_dp_usize);
+        let b_int = bd.len().saturating_sub(max_dp_usize);
         let max_int = a_int.max(b_int);
 
         if a_int < max_int {
-            ad = Self::prepend_zeros(ad, (max_int - a_int) as usize);
+            ad = Self::prepend_zeros(&ad, max_int - a_int);
         }
         if b_int < max_int {
-            bd = Self::prepend_zeros(bd, (max_int - b_int) as usize);
+            bd = Self::prepend_zeros(&bd, max_int - b_int);
         }
 
         (ad, bd, max_dp)
     }
 
-    fn prepend_zeros(src: Vec<u8, MAX_DIGITS>, count: usize) -> Vec<u8, MAX_DIGITS> {
+    fn prepend_zeros(src: &[u8], count: usize) -> Vec<u8, MAX_DIGITS> {
         let mut padded: Vec<u8, MAX_DIGITS> = Vec::new();
         for _ in 0..count {
             padded.push(0).ok();
         }
-        padded.extend_from_slice(&src).ok();
+        padded.extend_from_slice(src).ok();
         padded
     }
 
     /// Compare magnitudes of two digit slices, handling different lengths.
-    fn cmp_magnitude(a: &[u8], b: &[u8]) -> core::cmp::Ordering {
+    fn cmp_magnitude(a: &[u8], b: &[u8]) -> Ordering {
         let a_start = a.iter().position(|&x| x != 0).unwrap_or(a.len().saturating_sub(1));
         let b_start = b.iter().position(|&x| x != 0).unwrap_or(b.len().saturating_sub(1));
         let a_sig = &a[a_start..];
         let b_sig = &b[b_start..];
 
         match a_sig.len().cmp(&b_sig.len()) {
-            core::cmp::Ordering::Equal => {
-                for i in 0..a_sig.len() {
-                    match a_sig[i].cmp(&b_sig[i]) {
-                        core::cmp::Ordering::Equal => continue,
+            Ordering::Equal => {
+                for (da, db) in a_sig.iter().zip(b_sig.iter()) {
+                    match da.cmp(db) {
+                        Ordering::Equal => {}
                         other => return other,
                     }
                 }
-                core::cmp::Ordering::Equal
+                Ordering::Equal
             }
             other => other,
         }
@@ -152,16 +155,17 @@ impl CalcNumber {
     /// Subtract magnitudes: a - b where a >= b (same-length aligned arrays).
     fn sub_magnitudes(a: &[u8], b: &[u8]) -> Vec<u8, MAX_DIGITS> {
         let mut result: Vec<u8, MAX_DIGITS> = Vec::new();
-        let mut borrow: i8 = 0;
+        let mut borrow: i16 = 0;
 
         for i in (0..a.len()).rev() {
-            let mut diff = a[i] as i8 - b[i] as i8 - borrow;
+            let mut diff = i16::from(a[i]) - i16::from(b[i]) - borrow;
             if diff < 0 {
                 diff += 10;
                 borrow = 1;
             } else {
                 borrow = 0;
             }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             result.push(diff as u8).ok();
         }
         result.reverse();
@@ -188,14 +192,14 @@ impl CalcNumber {
             r
         } else {
             match Self::cmp_magnitude(&ad, &bd) {
-                core::cmp::Ordering::Equal => CalcNumber::zero(),
-                core::cmp::Ordering::Greater => {
+                Ordering::Equal => CalcNumber::zero(),
+                Ordering::Greater => {
                     let digits = Self::sub_magnitudes(&ad, &bd);
                     let mut r = CalcNumber { digits, decimal_places: dp, negative: a.negative };
                     r.normalize();
                     r
                 }
-                core::cmp::Ordering::Less => {
+                Ordering::Less => {
                     let digits = Self::sub_magnitudes(&bd, &ad);
                     let mut r = CalcNumber { digits, decimal_places: dp, negative: b.negative };
                     r.normalize();
@@ -221,25 +225,28 @@ impl CalcNumber {
             let mut carry: u16 = 0;
             for j in (0..b_len).rev() {
                 let pos = i + j + 1;
-                let prod = a.digits[i] as u16 * b.digits[j] as u16 + buf[pos] as u16 + carry;
-                buf[pos] = (prod % 10) as u8;
+                let prod = u16::from(a.digits[i]) * u16::from(b.digits[j])
+                    + u16::from(buf[pos]) + carry;
+                #[allow(clippy::cast_possible_truncation)]
+                { buf[pos] = (prod % 10) as u8; }
                 carry = prod / 10;
             }
-            buf[i] += carry as u8;
+            #[allow(clippy::cast_possible_truncation)]
+            { buf[i] += carry as u8; }
         }
 
         let dp = a.decimal_places + b.decimal_places;
         let negative = a.negative != b.negative;
-        let min_digits = dp as usize + 1;
+        let min_digits = usize::from(dp) + 1;
 
         let mut digits: Vec<u8, MAX_DIGITS> = Vec::new();
         let mut started = false;
         let start = result_len.saturating_sub(MAX_DIGITS);
-        for i in start..result_len {
-            let remaining = result_len - i;
-            if buf[i] != 0 || started || remaining <= min_digits {
+        for (idx, &val) in buf[start..result_len].iter().enumerate() {
+            let remaining = result_len - start - idx;
+            if val != 0 || started || remaining <= min_digits {
                 started = true;
-                if digits.push(buf[i]).is_err() {
+                if digits.push(val).is_err() {
                     break;
                 }
             }
@@ -263,7 +270,8 @@ impl CalcNumber {
         let target_dp: u8 = 10;
 
         // Scale dividend so that integer division yields the correct decimal places
-        let extra_zeros = target_dp as i16 + b.decimal_places as i16 - a.decimal_places as i16;
+        let extra_zeros = i16::from(target_dp) + i16::from(b.decimal_places)
+            - i16::from(a.decimal_places);
         let mut dividend: Vec<u8, MAX_DIGITS> = a.digits.clone();
         if extra_zeros > 0 {
             for _ in 0..extra_zeros {
@@ -276,7 +284,7 @@ impl CalcNumber {
         let mut remainder: Vec<u8, MAX_DIGITS> = Vec::new();
         remainder.push(0).ok();
 
-        for &d in dividend.iter() {
+        for &d in &dividend {
             // Shift remainder left and append next digit
             if remainder.len() == 1 && remainder[0] == 0 {
                 remainder[0] = d;
@@ -286,9 +294,9 @@ impl CalcNumber {
 
             // Count how many times divisor fits into remainder
             let mut count = 0u8;
-            while Self::cmp_magnitude(&remainder, divisor) != core::cmp::Ordering::Less {
+            while Self::cmp_magnitude(&remainder, divisor) != Ordering::Less {
                 let padded_div = Self::prepend_zeros(
-                    Vec::from_slice(divisor).unwrap_or_default(),
+                    divisor,
                     remainder.len() - divisor.len(),
                 );
                 remainder = Self::sub_magnitudes(&remainder, &padded_div);
