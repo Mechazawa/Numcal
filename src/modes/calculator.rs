@@ -1,4 +1,5 @@
 use embassy_sync::pubsub::WaitResult;
+use embassy_time::Timer;
 use embedded_graphics::mono_font::ascii::{FONT_10X20, FONT_6X10};
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -8,7 +9,7 @@ use portable_atomic::Ordering;
 
 use crate::utils::calc_number::CalcNumber;
 use crate::modes::Mode;
-use crate::tasks::{DisplayProxy, Key, KEYPAD_CHANNEL};
+use crate::tasks::{DisplayProxy, Key, KEYPAD_CHANNEL, HidEvent, HID_CHANNEL};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Op {
@@ -230,6 +231,43 @@ impl CalculatorMode {
         display.flush().unwrap();
     }
 
+    /// Map a display character to a USB HID keycode.
+    fn char_to_hid_keycode(c: char) -> Option<(u8, bool)> {
+        // Returns (keycode, needs_shift)
+        match c {
+            '1' => Some((0x1E, false)),
+            '2' => Some((0x1F, false)),
+            '3' => Some((0x20, false)),
+            '4' => Some((0x21, false)),
+            '5' => Some((0x22, false)),
+            '6' => Some((0x23, false)),
+            '7' => Some((0x24, false)),
+            '8' => Some((0x25, false)),
+            '9' => Some((0x26, false)),
+            '0' => Some((0x27, false)),
+            '-' => Some((0x2D, false)),
+            '.' => Some((0x37, false)),
+            _ => None,
+        }
+    }
+
+    /// Type out the current display value via USB HID, followed by Enter.
+    async fn type_number(&self) {
+        let hid = HID_CHANNEL.sender();
+        let text = self.current_display_value().to_display_string();
+
+        for c in text.chars() {
+            if let Some((keycode, _shift)) = Self::char_to_hid_keycode(c) {
+                hid.send(HidEvent::SetKey(keycode)).await;
+                hid.send(HidEvent::ReleaseKey(keycode)).await;
+            }
+        }
+
+        // Send Enter (0x28)
+        hid.send(HidEvent::SetKey(0x28)).await;
+        hid.send(HidEvent::ReleaseKey(0x28)).await;
+    }
+
     fn handle_key(&mut self, key: Key) {
         match key {
             Key::D0 => self.press_digit(0),
@@ -260,6 +298,7 @@ impl CalculatorMode {
             Key::Div => self.press_operator(Op::Div),
             Key::Enter => self.press_enter(),
             Key::Lock => self.clear(),
+            // F1 handled in task() since type_number is async
             Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::NC => {}
         }
     }
@@ -279,8 +318,12 @@ impl Mode for CalculatorMode {
                     continue;
                 }
 
-                self.handle_key(event.key);
-                self.draw(&mut display);
+                if event.key == Key::F1 {
+                    self.type_number().await;
+                } else {
+                    self.handle_key(event.key);
+                    self.draw(&mut display);
+                }
             }
         }
     }
