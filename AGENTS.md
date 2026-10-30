@@ -19,10 +19,10 @@
 - Injected Claude-mode keys type into the focused window on the Mac, so do not inject them while a Claude Code terminal has focus.
 
 ## Claude Code mode (Lock+F3)
-- `claude/numcal-hook.sh` is a Claude Code hook. It sends `session\tactivity\tproject\tdetail` lines to the Claude port; `src/tasks/claude_link.rs` parses them.
+- `claude/numcal-hook.sh` is a Claude Code hook. It sends `session\tactivity\tproject\tdetail` lines to the Claude port; `src/tasks/claude_link.rs` parses them. It is installed in `~/.claude/settings.json` for SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Elicitation, Stop, StopFailure and Notification (`idle_prompt`).
 - `claude/numcal-helper.py` (launchd agent `claude/nl.mechazawa.numcal-helper.plist`) sends a `helper` heartbeat and turns the device's `keys`/`jump` requests into Ghostty AppleScript calls. It finds a session's terminal by the terminal's foreground `pid` and `~/.claude/sessions/<pid>.json`; tty paths and folders are reused, so they are not used for matching. Needs Ghostty 1.4+, whose `send key` takes camelCase names such as `digit1` and `arrowDown`.
 - Without a heartbeat in the last 5 seconds the mode types over USB into the focused window instead. Lock tapped alone requests a jump to the session's terminal.
-- `NUMCAL_SESSIONS_DIR` points the helper at fake session records, so a throwaway `cat` tab can stand in for a session during tests. It is installed in `~/.claude/settings.json` for SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Elicitation, Stop, StopFailure and Notification (`idle_prompt`).
+- `NUMCAL_SESSIONS_DIR` points the helper at fake session records, so a throwaway `cat` tab can stand in for a session during tests.
 - `Stop` does not fire when the user interrupts a turn; the `idle_prompt` notification marks such a session idle later.
 
 ## Lint
