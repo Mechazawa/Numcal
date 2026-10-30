@@ -30,13 +30,13 @@ impl Boot {
             .fill_solid(&Rectangle::new(Point::new(5, 5), Size::new(12, 6)), BinaryColor::On)
             .unwrap();
 
-        (0..9)
-            .map(|key| Point::new(5 + key % 3 * 4, 14 + key / 3 * 4))
-            .for_each(|corner| {
-                display
-                    .fill_solid(&Rectangle::new(corner, Size::new(3, 3)), BinaryColor::On)
-                    .unwrap()
-            });
+        let keys = (0..9).map(|key| Point::new(5 + key % 3 * 4, 14 + key / 3 * 4));
+
+        for corner in keys {
+            display
+                .fill_solid(&Rectangle::new(corner, Size::new(3, 3)), BinaryColor::On)
+                .unwrap();
+        }
     }
 }
 

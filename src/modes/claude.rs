@@ -2,8 +2,8 @@ use core::fmt::Write;
 use embassy_futures::select::{Either3, select3};
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Instant, Timer};
+use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
-use embedded_graphics::mono_font::{MonoTextStyle, MonoTextStyleBuilder};
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
@@ -229,7 +229,7 @@ impl Claude {
     }
 
     async fn intro(&self, display: &mut DisplayProxy<'_>) {
-        let style = text_style(BinaryColor::On);
+        let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
 
         let drop = [-30, -20, -10, 0, 3, 1, 1].map(|y| (y, 0, false, false));
         let typing = (1..=TITLE.len()).map(|length| (1, length, false, false));
@@ -265,7 +265,7 @@ impl Claude {
     fn draw(&self, display: &mut DisplayProxy, sessions: &Sessions) {
         let now = Instant::now();
         let flash = self.tick % 4 < 2;
-        let normal = text_style(BinaryColor::On);
+        let normal = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
         let focus = sessions.focus();
 
         display.clear(BinaryColor::Off).unwrap();
@@ -302,7 +302,11 @@ impl Claude {
                         .fill_solid(&Rectangle::new(Point::new(38, 0), Size::new(82, 10)), BinaryColor::On)
                         .unwrap();
 
-                    ("Needs you!", Point::new(40, 0), text_style(BinaryColor::Off))
+                    (
+                        "Needs you!",
+                        Point::new(40, 0),
+                        MonoTextStyle::new(&FONT_6X10, BinaryColor::Off),
+                    )
                 }
                 Activity::Waiting => ("Needs you!", Point::new(40, 0), normal),
             },
@@ -323,26 +327,20 @@ impl Claude {
         };
 
         // Session grid at the right edge: filled while working, outlined while idle, blinking while it waits.
-        sessions.iter().zip(0..).for_each(|(session, index)| {
-            let filled = match session.activity {
-                Activity::Busy => true,
-                Activity::Waiting => flash,
-                Activity::Ready | Activity::Done => false,
-            };
-            let style = if filled {
-                PrimitiveStyle::with_fill(BinaryColor::On)
-            } else {
-                PrimitiveStyle::with_stroke(BinaryColor::On, 1)
+        let grid = sessions.iter().zip(0..).map(|(session, index)| {
+            let corner = Point::new(DisplayProxy::WIDTH - 7 + index / 8 * 4, index % 8 * 4);
+            let style = match session.activity {
+                Activity::Busy => PrimitiveStyle::with_fill(BinaryColor::On),
+                Activity::Waiting if flash => PrimitiveStyle::with_fill(BinaryColor::On),
+                Activity::Waiting | Activity::Ready | Activity::Done => PrimitiveStyle::with_stroke(BinaryColor::On, 1),
             };
 
-            Rectangle::new(
-                Point::new(DisplayProxy::WIDTH - 7 + index / 8 * 4, index % 8 * 4),
-                Size::new(3, 3),
-            )
-            .into_styled(style)
-            .draw(display)
-            .unwrap();
+            Rectangle::new(corner, Size::new(3, 3)).into_styled(style)
         });
+
+        for cell in grid {
+            cell.draw(display).unwrap();
+        }
 
         let lines = [
             (label, label_position, label_style),
@@ -368,10 +366,6 @@ impl Claude {
 
         display.flush().unwrap();
     }
-}
-
-fn text_style(color: BinaryColor) -> MonoTextStyle<'static, BinaryColor> {
-    MonoTextStyleBuilder::new().font(&FONT_6X10).text_color(color).build()
 }
 
 impl Mode for Claude {
