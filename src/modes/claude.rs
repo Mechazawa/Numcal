@@ -16,7 +16,7 @@ use crate::tasks::{
     Activity, CLAUDE_CHANGED, DisplayProxy, HID_CHANNEL, HOST_REQUESTS, HidEvent, KEYPAD_CHANNEL, Key, Sessions,
     claude_sessions, helper_connected, key_pressed,
 };
-use crate::utils::keystroke::{CTRL, Keystroke, SHIFT};
+use crate::utils::keystroke::Keystroke;
 
 const FRAME: Duration = Duration::from_millis(125);
 const FEEDBACK_TIME: Duration = Duration::from_millis(1200);
@@ -142,10 +142,10 @@ fn draw_spinner(display: &mut DisplayProxy, center: Point, tick: u32) {
     }
 }
 
-const CTRL_B: Keystroke = Keystroke::with(CTRL, 0x05, "b");
-const CTRL_O: Keystroke = Keystroke::with(CTRL, 0x12, "o");
-const CTRL_T: Keystroke = Keystroke::with(CTRL, 0x17, "t");
-const SHIFT_TAB: Keystroke = Keystroke::with(SHIFT, 0x2B, "tab");
+const CTRL_B: Keystroke = Keystroke::with("control", "b");
+const CTRL_O: Keystroke = Keystroke::with("control", "o");
+const CTRL_T: Keystroke = Keystroke::with("control", "t");
+const SHIFT_TAB: Keystroke = Keystroke::with("shift", "tab");
 
 enum Macro {
     Keys(&'static [Keystroke]),
@@ -190,12 +190,6 @@ impl Binding {
         match self.action {
             Macro::Keys(strokes) => strokes.iter().copied().collect(),
             Macro::Text(text) => text.chars().filter_map(Keystroke::from_char).collect(),
-        }
-    }
-
-    async fn type_over_usb(&self) {
-        for stroke in self.strokes() {
-            stroke.send().await;
         }
     }
 
@@ -247,13 +241,14 @@ impl Claude {
         }
     }
 
-    /// Keys go to the focused session's terminal through the host helper when it runs, and are typed
-    /// into whichever window has focus otherwise.
-    async fn handle_key(&mut self, key: Key, pressed: bool) {
-        let target = claude_sessions()
-            .focus()
-            .map(|session| session.id.clone())
-            .filter(|_| helper_connected());
+    /// Keys only ever go to the focused session's terminal through the host helper, never to the
+    /// window that has focus.
+    fn handle_key(&mut self, key: Key, pressed: bool) {
+        let target = match (helper_connected(), claude_sessions().focus()) {
+            (false, _) => Err("no helper"),
+            (true, None) => Err("no session"),
+            (true, Some(session)) => Ok(session.id.clone()),
+        };
 
         let feedback = match (key, pressed) {
             (Key::Lock, true) => {
@@ -262,14 +257,14 @@ impl Claude {
                 return;
             }
             (Key::Lock, false) if !self.lock_chord => match target {
-                Some(session) => {
+                Ok(session) => {
                     let mut request = String::new();
                     let _ = writeln!(request, "jump\t{session}");
                     let _ = HOST_REQUESTS.try_send(request);
 
                     "jump"
                 }
-                None => "no helper",
+                Err(reason) => reason,
             },
             (_, true) if key_pressed(Key::Lock) => {
                 self.lock_chord = true;
@@ -282,13 +277,13 @@ impl Claude {
                 };
 
                 match target {
-                    Some(session) => {
+                    Ok(session) => {
                         let _ = HOST_REQUESTS.try_send(binding.host_request(&session));
-                    }
-                    None => binding.type_over_usb().await,
-                }
 
-                binding.label
+                        binding.label
+                    }
+                    Err(reason) => reason,
+                }
             }
             _ => return,
         };
@@ -451,7 +446,7 @@ impl Mode for Claude {
             self.draw(&mut display, &claude_sessions());
 
             match select3(keypad.next_message(), CLAUDE_CHANGED.wait(), Timer::after(FRAME)).await {
-                Either3::First(WaitResult::Message(event)) => self.handle_key(event.key, event.pressed).await,
+                Either3::First(WaitResult::Message(event)) => self.handle_key(event.key, event.pressed),
                 Either3::Third(()) => self.tick = self.tick.wrapping_add(1),
                 _ => {}
             }

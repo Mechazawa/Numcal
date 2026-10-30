@@ -5,19 +5,25 @@ The device sends `keys\t<session>\t<strokes>` and `jump\t<session>` lines on its
 A session is matched to a terminal through the terminal's foreground pid and the session id Claude Code
 records for that pid in ~/.claude/sessions/<pid>.json, so a reused tty or folder never selects the
 wrong terminal. Without a match nothing is sent. Runs as a launchd agent, see nl.mechazawa.numcal-helper.plist.
+
+The helper also relays the page 4 canvas for the `numcal` CLI over a unix socket. A client sends
+`send <line>` to forward a line to the device, or `wait-key <seconds>` to receive the next
+`key\t<name>` line from the device as `key <name>` (or `timeout`).
 """
 
 import json
 import os
 import re
 import select
+import socket
 import subprocess
 import sys
 import termios
 import time
 from pathlib import Path
 
-PORT = "/dev/cu.usbmodem123456783"
+PORT = os.environ.get("NUMCAL_PORT", "/dev/cu.usbmodem123456783")
+SOCKET = Path(os.environ.get("NUMCAL_SOCKET", Path.home() / ".cache" / "numcal" / "helper.sock"))
 SESSIONS = Path(os.environ.get("NUMCAL_SESSIONS_DIR", Path.home() / ".claude" / "sessions"))
 HEARTBEAT_SECONDS = 2
 STROKE = re.compile(r"^(?:(control|shift|control,shift):)?([A-Za-z0-9]+)$")
@@ -106,7 +112,102 @@ def open_port():
     return fd
 
 
-def serve(fd):
+class Relay:
+    """Unix socket server that forwards canvas lines to the device and hands device keys to waiting clients."""
+
+    def __init__(self, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)
+        self.listener = socket.socket(socket.AF_UNIX)
+        self.listener.bind(str(path))
+        path.chmod(0o600)
+        self.listener.listen()
+        self.buffers = {}
+        self.deadlines = {}
+
+    def sockets(self):
+        return [self.listener, *self.buffers]
+
+    def reply(self, client, text):
+        try:
+            client.sendall(f"{text}\n".encode())
+        except OSError:
+            self.drop(client)
+
+    def drop(self, client):
+        self.buffers.pop(client, None)
+        self.deadlines.pop(client, None)
+        client.close()
+
+    def handle(self, ready, port_fd):
+        if ready is self.listener:
+            client, _ = self.listener.accept()
+            self.buffers[client] = b""
+
+            return
+
+        if ready not in self.buffers:
+            return
+
+        try:
+            data = ready.recv(4096)
+        except OSError:
+            data = b""
+
+        if not data:
+            return self.drop(ready)
+
+        self.buffers[ready] += data
+
+        while ready in self.buffers and b"\n" in self.buffers[ready]:
+            line, self.buffers[ready] = self.buffers[ready].split(b"\n", 1)
+            self.request(ready, line.decode(errors="replace").rstrip("\r"), port_fd)
+
+    def request(self, client, line, port_fd):
+        match line.split(" ", 1):
+            case ["send", text] if text.startswith("canvas\t"):
+                os.write(port_fd, f"{text}\n".encode())
+                self.reply(client, "ok")
+            case ["wait-key", seconds] if re.fullmatch(r"\d+(\.\d+)?", seconds):
+                self.deadlines[client] = time.monotonic() + float(seconds)
+            case _:
+                self.reply(client, "error bad request")
+
+    def deliver_key(self, name):
+        for client in list(self.deadlines):
+            del self.deadlines[client]
+            self.reply(client, f"key {name}")
+
+    def expire(self):
+        now = time.monotonic()
+
+        for client in [client for client, deadline in self.deadlines.items() if deadline <= now]:
+            del self.deadlines[client]
+            self.reply(client, "timeout")
+
+
+def read_device(fd, buffer, relay):
+    """Handles the lines in the data the device sent. Returns the unfinished tail, or None when the port closed."""
+    data = os.read(fd, 1024)
+
+    if not data:
+        return None
+
+    *lines, tail = (buffer + data).split(b"\n")
+
+    for line in lines:
+        match line.decode(errors="replace").strip().split("\t"):
+            case ["keys", session, strokes]:
+                log(f"keys {session} {strokes}: {send_keys(session, strokes)}")
+            case ["jump", session]:
+                log(f"jump {session}: {jump(session)}")
+            case ["key", name]:
+                relay.deliver_key(name)
+
+    return tail
+
+
+def serve(fd, relay):
     buffer = b""
     next_heartbeat = 0.0
 
@@ -115,28 +216,18 @@ def serve(fd):
             os.write(fd, b"helper\n")
             next_heartbeat = time.monotonic() + HEARTBEAT_SECONDS
 
-        if not select.select([fd], [], [], 0.5)[0]:
-            continue
+        relay.expire()
 
-        data = os.read(fd, 1024)
-
-        if not data:
-            return
-
-        buffer += data
-
-        while b"\n" in buffer:
-            line, buffer = buffer.split(b"\n", 1)
-            fields = line.decode(errors="replace").strip().split("\t")
-
-            match fields:
-                case ["keys", session, strokes]:
-                    log(f"keys {session} {strokes}: {send_keys(session, strokes)}")
-                case ["jump", session]:
-                    log(f"jump {session}: {jump(session)}")
+        for ready in select.select([fd, *relay.sockets()], [], [], 0.5)[0]:
+            if ready != fd:
+                relay.handle(ready, fd)
+            elif (buffer := read_device(fd, buffer, relay)) is None:
+                return
 
 
 def main():
+    relay = Relay(SOCKET)
+
     while True:
         if not os.path.exists(PORT):
             time.sleep(HEARTBEAT_SECONDS)
@@ -151,7 +242,7 @@ def main():
 
         try:
             log(f"connected to {PORT}")
-            serve(fd)
+            serve(fd, relay)
         except OSError as error:
             log(f"port closed: {error}")
         finally:

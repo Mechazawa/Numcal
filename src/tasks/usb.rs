@@ -25,9 +25,7 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 pub enum HidEvent {
     Reset,
     SetKey(u8),
-    SetModifier(u8),
     ReleaseKey(u8),
-    ReleaseModifier(u8),
 }
 
 #[repr(u8)]
@@ -183,7 +181,6 @@ async fn hid_writer_task(mut writer: HidWriter<'static, Driver<'static, USB>, 8>
 
     // Track currently pressed keys (max 6 keys for NKRO)
     let mut pressed_keys: heapless::Vec<u8, 6> = heapless::Vec::new();
-    let mut modifiers: u8 = 0;
 
     log::info!("USB HID writer task started");
 
@@ -194,28 +191,21 @@ async fn hid_writer_task(mut writer: HidWriter<'static, Driver<'static, USB>, 8>
         match event {
             HidEvent::Reset => {
                 pressed_keys.clear();
-                modifiers = 0;
             }
             HidEvent::SetKey(keycode) => {
                 if !pressed_keys.contains(&keycode) && pressed_keys.len() < 6 {
                     let _ = pressed_keys.push(keycode);
                 }
             }
-            HidEvent::SetModifier(modifier) => {
-                modifiers |= modifier;
-            }
             HidEvent::ReleaseKey(keycode) => {
                 if let Some(pos) = pressed_keys.iter().position(|&k| k == keycode) {
                     pressed_keys.swap_remove(pos);
                 }
             }
-            HidEvent::ReleaseModifier(modifier) => {
-                modifiers &= !modifier;
-            }
         }
 
         let mut report = KeyboardReport {
-            modifier: modifiers,
+            modifier: 0,
             reserved: 0,
             leds: 0,
             keycodes: [0u8; 6],

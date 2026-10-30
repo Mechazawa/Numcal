@@ -1,7 +1,7 @@
 use heapless::Vec;
 
 /// Assembles newline-terminated text lines from serial packets.
-pub struct LineBuffer(Vec<u8, 128>);
+pub struct LineBuffer(Vec<u8, 256>);
 
 impl LineBuffer {
     pub const fn new() -> Self {

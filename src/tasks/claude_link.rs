@@ -11,6 +11,7 @@ use embassy_usb::class::cdc_acm::CdcAcmClass;
 use heapless::{String, Vec};
 use portable_atomic::{AtomicU64, Ordering};
 
+use crate::modes::{CANVAS, CANVAS_CHANGED, show_canvas};
 use crate::utils::line_buffer::LineBuffer;
 
 pub const MAX_SESSIONS: usize = 16;
@@ -175,6 +176,14 @@ pub async fn claude_link_task(class: CdcAcmClass<'static, Driver<'static, USB>>)
                 lines.feed(&packet[..length], |line| {
                     if line == "helper" {
                         HELPER_SEEN.store(Instant::now().as_ticks().max(1), Ordering::Relaxed);
+
+                        return;
+                    }
+
+                    if let Some(op) = line.strip_prefix("canvas\t") {
+                        CANVAS.lock(|canvas| canvas.borrow_mut().apply(op));
+                        CANVAS_CHANGED.signal(());
+                        show_canvas();
 
                         return;
                     }

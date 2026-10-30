@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""Draws on page 4 of the NumCal display and reads its key presses through the numcal helper."""
+
+import argparse
+import os
+import re
+import socket
+import sys
+import textwrap
+import time
+import unicodedata
+from pathlib import Path
+
+SOCKET = Path(os.environ.get("NUMCAL_SOCKET", Path.home() / ".cache" / "numcal" / "helper.sock"))
+FONTS = ("tiny", "small", "big")
+SHAPES = ("fill", "line")
+KEY_NAMES = (*"0123456789", ".", "enter", "+", "-", "*", "/", "f1", "f2", "f3", "f4", "lock")
+SIGNATURES = {
+    "owner": ("text",),
+    "clear": (),
+    "flush": (),
+    "text": ("int", "int", FONTS, "text"),
+    "rect": ("int", "int", "int", "int", SHAPES),
+    "line": ("int", "int", "int", "int"),
+    "circle": ("int", "int", "int", SHAPES),
+    "invert": ("int", "int", "int", "int"),
+    "bits": ("int", "int", "int", "hex"),
+}
+MAX_LINE_BYTES = 250
+MAX_OPS_PER_FRAME = 40
+MAX_BITS_HEX = 128
+TINY_COLUMNS = 32
+SMALL_COLUMNS = 21
+TINY_ROW_HEIGHT = 6
+KEY_ROW_Y = 26
+BODY_TOP_WITH_TITLE = 12
+
+
+class Failure(Exception):
+    def __init__(self, message, code=1):
+        super().__init__(message)
+        self.code = code
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
+def validate_op(op):
+    name, _, rest = op.strip().partition(" ")
+
+    if name not in SIGNATURES:
+        raise Failure(f"unknown op {name!r}: use one of {', '.join(SIGNATURES)}")
+
+    kinds = SIGNATURES[name]
+    args = rest.split(None, max(len(kinds) - 1, 0))
+
+    if len(args) != len(kinds):
+        raise Failure(f"{name} takes {len(kinds)} argument(s), got {len(args)}: {op!r}")
+
+    for kind, arg in zip(kinds, args):
+        if kind == "int" and not re.fullmatch(r"-?\d+", arg):
+            raise Failure(f"{name}: {arg!r} is not an integer")
+
+        if isinstance(kind, tuple) and arg not in kind:
+            raise Failure(f"{name}: {arg!r} must be one of {', '.join(kind)}")
+
+        if kind == "text" and not (arg.isascii() and arg.isprintable()):
+            raise Failure(f"{name}: text must be printable ASCII: {arg!r}")
+
+        if kind == "hex":
+            validate_bits(int(args[2]), arg)
+
+    if len(f"canvas\t{op}".encode()) > MAX_LINE_BYTES:
+        raise Failure(f"line is longer than {MAX_LINE_BYTES} bytes: {op[:40]!r}...")
+
+
+def validate_bits(width, hex_data):
+    row_hex_length = 2 * ((width + 7) // 8)
+
+    if width <= 0 or not re.fullmatch(r"(?:[0-9a-fA-F]{2})+", hex_data):
+        raise Failure("bits: width must be positive and the data an even-length hex string")
+
+    if len(hex_data) > MAX_BITS_HEX or len(hex_data) % row_hex_length:
+        raise Failure(f"bits: need whole rows of {row_hex_length} hex digits, at most {MAX_BITS_HEX} in total")
+
+
+def validate_frame(ops):
+    for op in ops:
+        validate_op(op)
+
+    frame_size = 0
+
+    for op in ops:
+        frame_size = 0 if op == "flush" else frame_size + 1
+
+        if frame_size > MAX_OPS_PER_FRAME:
+            raise Failure(f"a frame holds at most {MAX_OPS_PER_FRAME} ops before flush")
+
+
+def to_ascii(text):
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().replace("\t", " ").strip()
+
+
+def parse_keys(spec):
+    pairs = [entry.partition("=") for entry in spec.split(",") if entry.strip()]
+    labels = {key.strip(): to_ascii(label) for key, _, label in pairs}
+
+    if len(labels) != len(pairs) or not all(pair[1] and pair[2].strip() for pair in pairs):
+        raise Failure("keys must look like '1=Attack,2=Hide', one label per key")
+
+    if unknown := [key for key in labels if key not in KEY_NAMES]:
+        raise Failure(f"unknown key {unknown[0]!r}: use one of {' '.join(KEY_NAMES)}")
+
+    return labels
+
+
+def parse_only(spec):
+    names = [name.strip() for name in spec.split(",") if name.strip()]
+
+    if unknown := [name for name in names if name not in KEY_NAMES]:
+        raise Failure(f"unknown key {unknown[0]!r}: use one of {' '.join(KEY_NAMES)}")
+
+    return names
+
+
+def card_ops(owner, title, body, labels):
+    top = BODY_TOP_WITH_TITLE if title else 0
+    bottom = KEY_ROW_Y if labels else 32
+    body_lines = [
+        line for paragraph in to_ascii(body or "").splitlines() for line in textwrap.wrap(paragraph, TINY_COLUMNS)
+    ][: (bottom - top) // TINY_ROW_HEIGHT]
+    key_line = " ".join(f"{key}:{label}" for key, label in labels.items())[:TINY_COLUMNS]
+
+    return [
+        f"owner {to_ascii(owner)}",
+        "clear",
+        *([f"text 1 0 small {to_ascii(title)[:SMALL_COLUMNS]}", "invert 0 0 128 10"] if title else []),
+        *[f"text 0 {top + TINY_ROW_HEIGHT * row} tiny {line}" for row, line in enumerate(body_lines)],
+        *([f"text 0 {KEY_ROW_Y} tiny {key_line}"] if labels else []),
+        "flush",
+    ]
+
+
+class Helper:
+    def __init__(self):
+        self.connection = socket.socket(socket.AF_UNIX)
+        self.connection.settimeout(5)
+
+        try:
+            self.connection.connect(str(SOCKET))
+        except OSError as error:
+            raise Failure(f"the numcal helper is not running (cannot connect to {SOCKET}: {error})", 3) from error
+
+        self.replies = self.connection.makefile("r")
+
+    def request(self, line, timeout=5):
+        self.connection.settimeout(timeout)
+        self.connection.sendall(f"{line}\n".encode())
+
+        return self.replies.readline().rstrip("\n")
+
+    def send_frame(self, ops):
+        for op in ops:
+            if (reply := self.request(f"send canvas\t{op.strip()}")) != "ok":
+                raise Failure(f"helper refused {op!r}: {reply or 'connection closed'}")
+
+    def wait_key(self, timeout, only):
+        deadline = time.monotonic() + timeout
+
+        while (remaining := deadline - time.monotonic()) > 0:
+            reply = self.request(f"wait-key {remaining:.1f}", remaining + 5)
+
+            if reply.startswith("key ") and (not only or reply[4:] in only):
+                return reply[4:]
+
+        return None
+
+
+def command_canvas(arguments):
+    ops = card_ops(arguments.owner, arguments.title, arguments.body, parse_keys(arguments.keys or ""))
+    validate_frame(ops)
+    Helper().send_frame(ops)
+
+
+def command_draw(arguments):
+    source = sys.stdin.read().splitlines() if arguments.ops == "-" else arguments.ops.split(";")
+    ops = [op.strip() for op in source if op.strip()]
+
+    if not ops:
+        raise Failure("no ops given")
+
+    ops = ops if ops[-1] == "flush" else [*ops, "flush"]
+    validate_frame(ops)
+    Helper().send_frame(ops)
+
+
+def command_wait_key(arguments):
+    key = Helper().wait_key(arguments.timeout, parse_only(arguments.only or ""))
+
+    if key is None:
+        raise Failure("timeout", 2)
+
+    print(key)
+
+
+def command_ask(arguments):
+    labels = parse_keys(arguments.keys)
+    ops = card_ops(arguments.owner, arguments.title, arguments.body, labels)
+    validate_frame(ops)
+    helper = Helper()
+    helper.send_frame(ops)
+
+    if (key := helper.wait_key(arguments.timeout, list(labels))) is None:
+        raise Failure("timeout", 2)
+
+    print(f"{key} {labels[key]}")
+
+
+def build_parser():
+    parser = Parser(
+        prog="numcal",
+        description="Draw on page 4 of the NumCal display (128x32, 1-bit) and read key presses.",
+        epilog=(
+            "exit codes: 0 ok, 1 bad input, 2 timeout, 3 helper not running. "
+            f"key names: {' '.join(KEY_NAMES)}. "
+            f"ops: {'; '.join(f'{name} {' '.join(map(kind_name, kinds))}'.strip() for name, kinds in SIGNATURES.items())}"
+        ),
+    )
+    commands = parser.add_subparsers(dest="command", required=True, parser_class=Parser)
+
+    canvas = commands.add_parser("canvas", help="draw a card: title bar, wrapped body, key labels")
+    canvas.add_argument("--owner", required=True)
+    canvas.add_argument("--title")
+    canvas.add_argument("--body")
+    canvas.add_argument("--keys", help="e.g. '1=Attack,2=Hide,3=Flee'")
+    canvas.set_defaults(run=command_canvas)
+
+    draw = commands.add_parser("draw", help="send raw ops separated by ';' (or '-' to read one op per line from stdin)")
+    draw.add_argument("ops")
+    draw.set_defaults(run=command_draw)
+
+    wait_key = commands.add_parser("wait-key", help="print the next key press; exit 2 on timeout")
+    wait_key.add_argument("--timeout", type=float, default=300)
+    wait_key.add_argument("--only", help="comma separated key names to accept, e.g. 1,2,3")
+    wait_key.set_defaults(run=command_wait_key)
+
+    ask = commands.add_parser("ask", help="draw a card, wait for one of its keys, print '<key> <label>'")
+    ask.add_argument("--owner", required=True)
+    ask.add_argument("--title", required=True)
+    ask.add_argument("--body")
+    ask.add_argument("--keys", required=True)
+    ask.add_argument("--timeout", type=float, default=300)
+    ask.set_defaults(run=command_ask)
+
+    return parser
+
+
+def kind_name(kind):
+    return "|".join(kind) if isinstance(kind, tuple) else {"int": "N", "text": "TEXT", "hex": "HEX"}[kind]
+
+
+def main():
+    arguments = build_parser().parse_args()
+
+    try:
+        arguments.run(arguments)
+    except Failure as failure:
+        print(f"numcal: {failure}", file=sys.stderr)
+
+        return failure.code
+    except OSError as error:
+        print(f"numcal: helper connection failed: {error}", file=sys.stderr)
+
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

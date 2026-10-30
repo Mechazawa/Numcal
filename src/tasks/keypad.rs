@@ -75,6 +75,38 @@ impl Key {
     }
 }
 
+impl Key {
+    /// The name host tools use for this key.
+    pub fn name(self) -> Option<&'static str> {
+        let name = match self {
+            Key::F1 => "f1",
+            Key::F2 => "f2",
+            Key::F3 => "f3",
+            Key::F4 => "f4",
+            Key::Lock => "lock",
+            Key::Div => "/",
+            Key::Mul => "*",
+            Key::Sub => "-",
+            Key::Add => "+",
+            Key::Enter => "enter",
+            Key::Dot => ".",
+            Key::D0 => "0",
+            Key::D1 => "1",
+            Key::D2 => "2",
+            Key::D3 => "3",
+            Key::D4 => "4",
+            Key::D5 => "5",
+            Key::D6 => "6",
+            Key::D7 => "7",
+            Key::D8 => "8",
+            Key::D9 => "9",
+            Key::NC => return None,
+        };
+
+        Some(name)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KeyEvent {
     pub key: Key,

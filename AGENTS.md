@@ -25,5 +25,10 @@
 - `NUMCAL_SESSIONS_DIR` points the helper at fake session records, so a throwaway `cat` tab can stand in for a session during tests.
 - `Stop` does not fire when the user interrupts a turn; the `idle_prompt` notification marks such a session idle later.
 
+## Canvas (Lock+F4)
+- Agents draw with the `numcal` CLI (`claude/numcal`, symlinked to `~/.local/bin/numcal`) and the `numcal-display` skill. The helper relays CLI requests from `~/.cache/numcal/helper.sock` to the Claude port as `canvas\t<op>` lines and hands `key\t<name>` events back to waiting `numcal wait-key`/`ask` calls.
+- Any canvas line switches the device to page 4. Ops render into a local framebuffer, so `invert` works and a frame fits in the display channel whatever its op count (max 40 ops per frame).
+- Pages 3 and 4 never type over USB: page 3 sends keys to the session's terminal through the helper, page 4 sends key events to agents.
+
 ## Lint
 - `cargo clippy --release -- -W clippy::pedantic` and the same with `--features debug-link` must be clean.
