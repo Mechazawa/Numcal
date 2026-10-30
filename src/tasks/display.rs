@@ -1,38 +1,35 @@
-use ssd1306::size::DisplaySize as DisplaySizeTrait;
 use display_interface::DisplayError;
 use embassy_executor::Spawner;
+use embassy_futures::yield_now;
+use embassy_rp::Peri;
 use embassy_rp::gpio::{Level, Output, Pin};
 use embassy_rp::peripherals::SPI1;
 use embassy_rp::spi::{ClkPin, Config as SpiConfig, MosiPin, Spi};
-use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::{RawMutex, ThreadModeRawMutex};
+use embassy_sync::channel::Channel;
 use embassy_sync::channel::{Sender, TrySendError};
-use embassy_futures::yield_now;
 use embassy_time::Timer;
+use embedded_graphics::Pixel;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use log::{error, info};
 use ssd1306::Ssd1306;
+use ssd1306::command::Command;
 use ssd1306::prelude::*;
+use ssd1306::size::DisplaySize as DisplaySizeTrait;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_sync::channel::Channel;
-use embedded_graphics::Pixel;
-use ssd1306::command::Command;
 
 #[derive(Debug, Copy, Clone)]
 pub struct DisplaySize132x64;
 impl DisplaySizeTrait for DisplaySize132x64 {
     const WIDTH: u8 = 132;
     const HEIGHT: u8 = 64;
-    type Buffer = [u8; ((64*132)/8) as usize];
+    type Buffer = [u8; ((64 * 132) / 8) as usize];
 
-    fn configure(
-        &self,
-        iface: &mut impl WriteOnlyDataCommand,
-    ) -> Result<(), DisplayError> {
+    fn configure(&self, iface: &mut impl WriteOnlyDataCommand) -> Result<(), DisplayError> {
         Command::ComPinConfig(true, false).send(iface)
     }
 }
@@ -55,7 +52,10 @@ type DisplayType = Ssd1306<
 
 const DRAW_BUFFER_SIZE: usize = 128;
 #[derive(Debug)]
-pub enum DisplayAction<C = BinaryColor> where C: PixelColor {
+pub enum DisplayAction<C = BinaryColor>
+where
+    C: PixelColor,
+{
     Clear(C),
     FillSolid(Rectangle, C),
     Draw(heapless::Vec<Pixel<C>, DRAW_BUFFER_SIZE>),
@@ -100,18 +100,20 @@ pub async fn init(
     let spi_device = ExclusiveDevice::new_no_delay(spi, cs_pin).unwrap();
     let interface = SPIInterface::new(spi_device, dc_pin);
 
-    info!("Creating display driver ({}x{})...", DisplaySize::WIDTH, DisplaySize::HEIGHT);
-    let display = DISPLAY.init(
-        Ssd1306::new(interface, DisplaySize132x64, DisplayRotation::Rotate0)
-            .into_buffered_graphics_mode(),
+    info!(
+        "Creating display driver ({}x{})...",
+        DisplaySize::WIDTH,
+        DisplaySize::HEIGHT
     );
+    let display = DISPLAY
+        .init(Ssd1306::new(interface, DisplaySize132x64, DisplayRotation::Rotate0).into_buffered_graphics_mode());
 
     match display.init() {
         Ok(()) => {
             spawner.spawn(display_task(display).unwrap());
 
             info!("Display initialized successfully!");
-        },
+        }
         Err(_) => {
             error!("Display initialization failed!");
         }
@@ -125,17 +127,17 @@ async fn display_task(display: &'static mut DisplayType) {
     let receiver = DISPLAY_CHANNEL.receiver();
 
     loop {
-       let action = receiver.receive().await;
+        let action = receiver.receive().await;
 
-       #[cfg(feature = "debug-link")]
-       crate::debug_link::mirror(&action);
+        #[cfg(feature = "debug-link")]
+        crate::debug_link::mirror(&action);
 
-       let err = match action {
+        let err = match action {
             DisplayAction::Clear(color) => (*display).clear(color),
             DisplayAction::FillSolid(rect, color) => (*display).fill_solid(&rect, color),
             DisplayAction::Draw(pixels) => (*display).draw_iter(pixels),
             DisplayAction::Flush => (*display).flush(),
-       };
+        };
 
         if let Err(e) = err {
             error!("Display error: {e:?}");
@@ -145,7 +147,11 @@ async fn display_task(display: &'static mut DisplayType) {
 
 /// Draws in visible-window coordinates: (0, 0) is the top-left pixel the panel shows, and anything
 /// outside [`DisplayProxy::WIDTH`] x [`DisplayProxy::HEIGHT`] is clipped.
-pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 64> where T: RawMutex, C: PixelColor {
+pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 64>
+where
+    T: RawMutex,
+    C: PixelColor,
+{
     channel: Sender<'u, T, DisplayAction<C>, CN>,
     /// Pixels from consecutive draws share chunks, so a frame of text costs a few channel slots
     /// instead of one per glyph.
@@ -164,7 +170,11 @@ impl DisplayProxy<'_> {
     }
 }
 
-impl<T, C, const CN: usize> DisplayProxy<'_, T, C, CN> where T: RawMutex, C: PixelColor {
+impl<T, C, const CN: usize> DisplayProxy<'_, T, C, CN>
+where
+    T: RawMutex,
+    C: PixelColor,
+{
     pub fn flush(&mut self) -> Result<(), TrySendError<DisplayAction<C>>> {
         self.send_pending()?;
 
@@ -185,7 +195,8 @@ impl<T, C, const CN: usize> DisplayProxy<'_, T, C, CN> where T: RawMutex, C: Pix
             return Ok(());
         }
 
-        self.channel.try_send(DisplayAction::Draw(core::mem::take(&mut self.pending)))
+        self.channel
+            .try_send(DisplayAction::Draw(core::mem::take(&mut self.pending)))
     }
 }
 
@@ -202,18 +213,21 @@ where
 impl<T, C, const CN: usize> DrawTarget for DisplayProxy<'_, T, C, CN>
 where
     T: RawMutex,
-    C: PixelColor
+    C: PixelColor,
 {
     type Color = C;
     type Error = TrySendError<DisplayAction<C>>;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item=Pixel<Self::Color>>
+        I: IntoIterator<Item = Pixel<Self::Color>>,
     {
         let offset = VISIBLE_AREA.top_left;
 
-        for pixel in pixels.into_iter().map(|Pixel(point, color)| Pixel(point + offset, color)) {
+        for pixel in pixels
+            .into_iter()
+            .map(|Pixel(point, color)| Pixel(point + offset, color))
+        {
             if !VISIBLE_AREA.contains(pixel.0) {
                 continue;
             }

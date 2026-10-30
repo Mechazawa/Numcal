@@ -1,5 +1,5 @@
 use core::fmt::Write;
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::mono_font::ascii::FONT_6X10;
@@ -11,12 +11,12 @@ use embedded_graphics::text::{Baseline, Text};
 use heapless::String;
 use portable_atomic::Ordering;
 
-use crate::modes::{Mode, MODE_RUNNING};
+use crate::modes::{MODE_RUNNING, Mode};
 use crate::tasks::{
-    claude_sessions, key_pressed, Activity, DisplayProxy, HidEvent, Key, CLAUDE_CHANGED, HID_CHANNEL,
-    KEYPAD_CHANNEL, Sessions,
+    Activity, CLAUDE_CHANGED, DisplayProxy, HID_CHANNEL, HidEvent, KEYPAD_CHANNEL, Key, Sessions, claude_sessions,
+    key_pressed,
 };
-use crate::utils::keystroke::{Keystroke, CTRL, SHIFT};
+use crate::utils::keystroke::{CTRL, Keystroke, SHIFT};
 
 const FRAME: Duration = Duration::from_millis(125);
 const FEEDBACK_TIME: Duration = Duration::from_millis(1200);
@@ -111,7 +111,10 @@ impl Drawable for Clawd {
             .try_for_each(|(row, start, length)| {
                 let corner = self.top_left + Point::new((start * width).cast_signed(), (row * height).cast_signed());
 
-                target.fill_solid(&Rectangle::new(corner, Size::new(length * width, height)), BinaryColor::On)
+                target.fill_solid(
+                    &Rectangle::new(corner, Size::new(length * width, height)),
+                    BinaryColor::On,
+                )
             })
     }
 }
@@ -132,7 +135,10 @@ fn draw_spinner(display: &mut DisplayProxy, center: Point, tick: u32) {
     ];
 
     for (start, end) in arms {
-        Line::new(center + start, center + end).into_styled(stroke).draw(display).unwrap();
+        Line::new(center + start, center + end)
+            .into_styled(stroke)
+            .draw(display)
+            .unwrap();
     }
 }
 
@@ -292,7 +298,9 @@ impl Claude {
                     (verb, Point::new(50, 0), normal)
                 }
                 Activity::Waiting if flash => {
-                    display.fill_solid(&Rectangle::new(Point::new(38, 0), Size::new(82, 10)), BinaryColor::On).unwrap();
+                    display
+                        .fill_solid(&Rectangle::new(Point::new(38, 0), Size::new(82, 10)), BinaryColor::On)
+                        .unwrap();
 
                     ("Needs you!", Point::new(40, 0), text_style(BinaryColor::Off))
                 }
@@ -327,23 +335,35 @@ impl Claude {
                 PrimitiveStyle::with_stroke(BinaryColor::On, 1)
             };
 
-            Rectangle::new(Point::new(DisplayProxy::WIDTH - 7 + index / 8 * 4, index % 8 * 4), Size::new(3, 3))
-                .into_styled(style)
-                .draw(display)
-                .unwrap();
+            Rectangle::new(
+                Point::new(DisplayProxy::WIDTH - 7 + index / 8 * 4, index % 8 * 4),
+                Size::new(3, 3),
+            )
+            .into_styled(style)
+            .draw(display)
+            .unwrap();
         });
 
         let lines = [
             (label, label_position, label_style),
             (detail, Point::new(40, 11), normal),
-            (focus.map_or("", |session| session.project.as_str()), Point::new(40, 22), normal),
+            (
+                focus.map_or("", |session| session.project.as_str()),
+                Point::new(40, 22),
+                normal,
+            ),
             (elapsed.as_str(), Point::new(3, 22), normal),
         ];
 
         for (content, position, style) in lines {
-            Text::with_baseline(&content[..content.len().min(TEXT_COLUMNS)], position, style, Baseline::Top)
-                .draw(display)
-                .unwrap();
+            Text::with_baseline(
+                &content[..content.len().min(TEXT_COLUMNS)],
+                position,
+                style,
+                Baseline::Top,
+            )
+            .draw(display)
+            .unwrap();
         }
 
         display.flush().unwrap();

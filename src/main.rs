@@ -1,24 +1,24 @@
 #![no_std]
 #![no_main]
-mod tasks;
-mod utils;
-mod modes;
 #[cfg(feature = "debug-link")]
 mod debug_link;
+mod modes;
+mod tasks;
+mod utils;
 
+use crate::modes::init_mode_handler;
+use crate::tasks::{DisplayProxy, init_hotkeys, init_keypad, init_watchdog};
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
+use embassy_time::Timer;
 use embedded_graphics::Drawable;
-use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
+use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::{DrawTarget, Point};
 use embedded_graphics::text::{Baseline, Text};
-use embassy_time::Timer;
-use tasks::init_usb;
 use tasks::init_display;
-use crate::modes::init_mode_handler;
-use crate::tasks::{init_hotkeys, init_keypad, init_watchdog, DisplayProxy};
+use tasks::init_usb;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -26,10 +26,7 @@ async fn main(spawner: Spawner) {
 
     init_watchdog(&spawner, peripherals.WATCHDOG).await;
 
-    init_usb(
-        &spawner,
-        peripherals.USB
-    ).await;
+    init_usb(&spawner, peripherals.USB).await;
 
     init_display(
         &spawner,
@@ -39,23 +36,29 @@ async fn main(spawner: Spawner) {
         peripherals.PIN_13,
         peripherals.PIN_3,
         peripherals.PIN_10,
-    ).await;
+    )
+    .await;
 
     show_text("Boot Keyboard");
 
-    init_keypad(&spawner, [
-        peripherals.PIN_9.into(),
-        peripherals.PIN_8.into(),
-        peripherals.PIN_7.into(),
-        peripherals.PIN_6.into(),
-        peripherals.PIN_5.into(),
-        peripherals.PIN_4.into(),
-    ], [
-        peripherals.PIN_26.into(),
-        peripherals.PIN_27.into(),
-        peripherals.PIN_28.into(),
-        peripherals.PIN_29.into(),
-    ]).await;
+    init_keypad(
+        &spawner,
+        [
+            peripherals.PIN_9.into(),
+            peripherals.PIN_8.into(),
+            peripherals.PIN_7.into(),
+            peripherals.PIN_6.into(),
+            peripherals.PIN_5.into(),
+            peripherals.PIN_4.into(),
+        ],
+        [
+            peripherals.PIN_26.into(),
+            peripherals.PIN_27.into(),
+            peripherals.PIN_28.into(),
+            peripherals.PIN_29.into(),
+        ],
+    )
+    .await;
 
     init_hotkeys(&spawner).await;
     init_mode_handler(&spawner).await;
@@ -81,9 +84,14 @@ fn show_text(text: &str) {
 
     display.clear(BinaryColor::Off).unwrap();
 
-    Text::with_baseline(text, Point::new(2, DisplayProxy::HEIGHT / 2), text_style, Baseline::Middle)
-        .draw(&mut display)
-        .unwrap();
+    Text::with_baseline(
+        text,
+        Point::new(2, DisplayProxy::HEIGHT / 2),
+        text_style,
+        Baseline::Middle,
+    )
+    .draw(&mut display)
+    .unwrap();
 
     display.flush().unwrap();
 }

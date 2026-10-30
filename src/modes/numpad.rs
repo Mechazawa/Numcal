@@ -1,20 +1,18 @@
-use crate::modes::{Mode, MODE_RUNNING};
-use crate::tasks::{LED_STATE, LED_CHANGED, HID_CHANNEL, HidEvent, KEYPAD_CHANNEL, Key, KeyboardLed, DisplayProxy};
-use portable_atomic::Ordering;
-use embassy_futures::select::{select, Either};
+use crate::modes::{MODE_RUNNING, Mode};
+use crate::tasks::{DisplayProxy, HID_CHANNEL, HidEvent, KEYPAD_CHANNEL, Key, KeyboardLed, LED_CHANGED, LED_STATE};
+use embassy_futures::select::{Either, select};
 use embassy_sync::pubsub::WaitResult;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::geometry::{Point, Size};
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::Rectangle;
+use portable_atomic::Ordering;
 
-pub struct Numpad {
-}
+pub struct Numpad {}
 
 impl Numpad {
     pub fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 
     fn draw_leds(display: &mut DisplayProxy) {
@@ -26,7 +24,8 @@ impl Numpad {
 
         display.clear(BinaryColor::Off).unwrap();
 
-        let lefts = (LED_BOX_SPACING..).step_by((LED_BOX_SIZE.width.cast_signed() + LED_BOX_SPACING).unsigned_abs() as usize);
+        let lefts =
+            (LED_BOX_SPACING..).step_by((LED_BOX_SIZE.width.cast_signed() + LED_BOX_SPACING).unsigned_abs() as usize);
 
         for (led, left) in LED_VALUES.into_iter().zip(lefts) {
             let outline = Rectangle::new(Point::new(left, LED_BOX_TOP), LED_BOX_SIZE);
@@ -34,7 +33,9 @@ impl Numpad {
             display.fill_solid(&outline, BinaryColor::On).unwrap();
 
             if !LED_STATE.test(led) {
-                display.fill_solid(&outline.offset(-LED_BOX_THICKNESS), BinaryColor::Off).unwrap();
+                display
+                    .fill_solid(&outline.offset(-LED_BOX_THICKNESS), BinaryColor::Off)
+                    .unwrap();
             }
         }
 

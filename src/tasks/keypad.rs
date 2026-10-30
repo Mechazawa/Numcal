@@ -1,7 +1,7 @@
 use crate::utils::debounce::Debounce;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Level, Pull, Output, Input, AnyPin};
 use embassy_rp::Peri;
+use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::{Duration, Timer};
@@ -95,12 +95,42 @@ pub static KEYPAD_CHANNEL: PubSubChannel<CriticalSectionRawMutex, KeyEvent, 32, 
 
 // todo not great but does the trick
 static STATE: [[AtomicBool; COLS]; ROWS] = [
-    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
-    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
-    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
-    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
-    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
-    [AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false), AtomicBool::new(false)],
+    [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ],
+    [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ],
+    [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ],
+    [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ],
+    [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ],
+    [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ],
 ];
 
 const KEYMAP_INV: [Option<(usize, usize)>; KEY_COUNT] = build_inverse_keymap();
@@ -136,14 +166,11 @@ const fn build_inverse_keymap() -> [Option<(usize, usize)>; KEY_COUNT] {
     result
 }
 
-pub async fn init(
-    spawner: &Spawner,
-    row_pins: [Peri<'static, AnyPin>; ROWS],
-    col_pins: [Peri<'static, AnyPin>; COLS],
-) {
+pub async fn init(spawner: &Spawner, row_pins: [Peri<'static, AnyPin>; ROWS], col_pins: [Peri<'static, AnyPin>; COLS]) {
     let rows = ROWS_CELL.init(row_pins.map(|pin| Output::new(pin, Level::High)));
     let cols = COLS_CELL.init(col_pins.map(|pin| Input::new(pin, Pull::Up)));
-    let debouncer = DEBOUNCE_CELL.init([[false; COLS]; ROWS].map(|row| row.map(|value| Debounce::new(value, DEBOUNCE_DELAY))));
+    let debouncer =
+        DEBOUNCE_CELL.init([[false; COLS]; ROWS].map(|row| row.map(|value| Debounce::new(value, DEBOUNCE_DELAY))));
 
     spawner.spawn(keyboard_task(rows, cols, debouncer).unwrap());
 }
@@ -171,7 +198,7 @@ pub async fn keyboard_task(
 
                     let key = KEYMAP[row_idx][col_idx];
 
-                    events.push(KeyEvent {key, pressed}).unwrap();
+                    events.push(KeyEvent { key, pressed }).unwrap();
 
                     if pressed {
                         info!("DOWN [{row_idx}][{col_idx}] {key:?}");
@@ -198,7 +225,9 @@ pub fn inject_key(key: Key, pressed: bool) {
         STATE[row][col].store(pressed, Ordering::Relaxed);
     }
 
-    KEYPAD_CHANNEL.immediate_publisher().publish_immediate(KeyEvent { key, pressed });
+    KEYPAD_CHANNEL
+        .immediate_publisher()
+        .publish_immediate(KeyEvent { key, pressed });
 }
 
 pub fn key_pressed(key: Key) -> bool {

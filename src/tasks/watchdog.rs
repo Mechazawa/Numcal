@@ -7,13 +7,15 @@ use log::info;
 const WATCHDOG_TIMEOUT_SECS: u32 = 8;
 const WATCHDOG_FEED_INTERVAL: Duration = Duration::from_secs(4);
 const BOOTSEL_MAGIC_SCRATCH5: u32 = 0xb007_c0d3;
-const BOOTSEL_MAGIC_SCRATCH6: u32 = 0;  // flags: 0 = BOOTSEL mode
+const BOOTSEL_MAGIC_SCRATCH6: u32 = 0; // flags: 0 = BOOTSEL mode
 
 #[embassy_executor::task]
 async fn watchdog_task(mut watchdog: Watchdog) {
-    info!("Watchdog enabled: timeout={}s, feed_interval={}s",
-          WATCHDOG_TIMEOUT_SECS,
-          WATCHDOG_FEED_INTERVAL.as_secs());
+    info!(
+        "Watchdog enabled: timeout={}s, feed_interval={}s",
+        WATCHDOG_TIMEOUT_SECS,
+        WATCHDOG_FEED_INTERVAL.as_secs()
+    );
 
     loop {
         watchdog.feed();

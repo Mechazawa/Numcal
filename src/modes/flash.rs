@@ -1,12 +1,12 @@
+use crate::modes::{MODE_RUNNING, Mode};
+use crate::show_text;
+use crate::tasks::DisplayProxy;
 use embassy_time::Timer;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::DrawTarget;
-use crate::modes::{Mode, MODE_RUNNING};
-use crate::tasks::DisplayProxy;
-use portable_atomic::{Ordering};
-use crate::show_text;
+use portable_atomic::Ordering;
 
-pub struct FlashTest{}
+pub struct FlashTest {}
 
 impl FlashTest {
     pub fn new() -> Self {
@@ -25,7 +25,9 @@ impl Mode for FlashTest {
         let mut inverted = false;
 
         while MODE_RUNNING.load(Ordering::Relaxed) {
-            display.clear(if inverted {BinaryColor::On} else {BinaryColor::Off}).unwrap();
+            display
+                .clear(if inverted { BinaryColor::On } else { BinaryColor::Off })
+                .unwrap();
             display.flush().unwrap();
 
             Timer::after_secs(1).await;

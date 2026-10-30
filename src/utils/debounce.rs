@@ -1,6 +1,5 @@
 use embassy_time::{Duration, Instant};
 
-
 #[derive(Debug, Copy, Clone)]
 pub struct Debounce<T> {
     pub value: T,
@@ -9,7 +8,10 @@ pub struct Debounce<T> {
     measured_at: Instant,
 }
 
-impl<T> Debounce<T> where T: Clone + PartialEq<T> {
+impl<T> Debounce<T>
+where
+    T: Clone + PartialEq<T>,
+{
     pub fn new(initial: T, delay: Duration) -> Self {
         Self {
             value: initial.clone(),
@@ -24,7 +26,7 @@ impl<T> Debounce<T> where T: Clone + PartialEq<T> {
             self.measured_value = value;
             self.measured_at = Instant::now();
 
-            return false
+            return false;
         }
 
         if self.measured_value != self.value && Instant::now().duration_since(self.measured_at) >= self.delay {

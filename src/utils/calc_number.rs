@@ -17,7 +17,11 @@ impl CalcNumber {
     pub fn zero() -> Self {
         let mut digits = Vec::new();
         digits.push(0).ok();
-        Self { digits, decimal_places: 0, negative: false }
+        Self {
+            digits,
+            decimal_places: 0,
+            negative: false,
+        }
     }
 
     pub fn is_zero(&self) -> bool {
@@ -187,7 +191,11 @@ impl CalcNumber {
 
         if a.negative == b.negative {
             let digits = Self::add_magnitudes(&ad, &bd);
-            let mut r = CalcNumber { digits, decimal_places: dp, negative: a.negative };
+            let mut r = CalcNumber {
+                digits,
+                decimal_places: dp,
+                negative: a.negative,
+            };
             r.normalize();
             r
         } else {
@@ -195,13 +203,21 @@ impl CalcNumber {
                 Ordering::Equal => CalcNumber::zero(),
                 Ordering::Greater => {
                     let digits = Self::sub_magnitudes(&ad, &bd);
-                    let mut r = CalcNumber { digits, decimal_places: dp, negative: a.negative };
+                    let mut r = CalcNumber {
+                        digits,
+                        decimal_places: dp,
+                        negative: a.negative,
+                    };
                     r.normalize();
                     r
                 }
                 Ordering::Less => {
                     let digits = Self::sub_magnitudes(&bd, &ad);
-                    let mut r = CalcNumber { digits, decimal_places: dp, negative: b.negative };
+                    let mut r = CalcNumber {
+                        digits,
+                        decimal_places: dp,
+                        negative: b.negative,
+                    };
                     r.normalize();
                     r
                 }
@@ -225,14 +241,17 @@ impl CalcNumber {
             let mut carry: u16 = 0;
             for j in (0..b_len).rev() {
                 let pos = i + j + 1;
-                let prod = u16::from(a.digits[i]) * u16::from(b.digits[j])
-                    + u16::from(buf[pos]) + carry;
+                let prod = u16::from(a.digits[i]) * u16::from(b.digits[j]) + u16::from(buf[pos]) + carry;
                 #[allow(clippy::cast_possible_truncation)]
-                { buf[pos] = (prod % 10) as u8; }
+                {
+                    buf[pos] = (prod % 10) as u8;
+                }
                 carry = prod / 10;
             }
             #[allow(clippy::cast_possible_truncation)]
-            { buf[i] += carry as u8; }
+            {
+                buf[i] += carry as u8;
+            }
         }
 
         let dp = a.decimal_places + b.decimal_places;
@@ -255,7 +274,11 @@ impl CalcNumber {
             digits.push(0).ok();
         }
 
-        let mut r = CalcNumber { digits, decimal_places: dp, negative };
+        let mut r = CalcNumber {
+            digits,
+            decimal_places: dp,
+            negative,
+        };
         r.normalize();
         r
     }
@@ -270,8 +293,7 @@ impl CalcNumber {
         let target_dp: u8 = 10;
 
         // Scale dividend so that integer division yields the correct decimal places
-        let extra_zeros = i16::from(target_dp) + i16::from(b.decimal_places)
-            - i16::from(a.decimal_places);
+        let extra_zeros = i16::from(target_dp) + i16::from(b.decimal_places) - i16::from(a.decimal_places);
         let mut dividend: Vec<u8, MAX_DIGITS> = a.digits.clone();
         if extra_zeros > 0 {
             for _ in 0..extra_zeros {
@@ -295,10 +317,7 @@ impl CalcNumber {
             // Count how many times divisor fits into remainder
             let mut count = 0u8;
             while Self::cmp_magnitude(&remainder, divisor) != Ordering::Less {
-                let padded_div = Self::prepend_zeros(
-                    divisor,
-                    remainder.len() - divisor.len(),
-                );
+                let padded_div = Self::prepend_zeros(divisor, remainder.len() - divisor.len());
                 remainder = Self::sub_magnitudes(&remainder, &padded_div);
                 Self::trim_vec_leading_zeros(&mut remainder);
                 count += 1;
@@ -311,7 +330,11 @@ impl CalcNumber {
             result.push(0).ok();
         }
 
-        let mut r = CalcNumber { digits: result, decimal_places: target_dp, negative };
+        let mut r = CalcNumber {
+            digits: result,
+            decimal_places: target_dp,
+            negative,
+        };
         r.normalize();
         Some(r)
     }

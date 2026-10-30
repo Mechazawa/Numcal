@@ -1,16 +1,11 @@
+use crate::show_text;
+use crate::tasks::{KEYPAD_CHANNEL, Key, key_pressed};
 use embassy_executor::Spawner;
 use embassy_rp::rom_data::reset_to_usb_boot;
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::Timer;
-use crate::show_text;
-use crate::tasks::{key_pressed, Key, KEYPAD_CHANNEL};
 
-const REBOOT_KEYS: [Key; 4] = [
-    Key::F1,
-    Key::F2,
-    Key::F3,
-    Key::F4,
-];
+const REBOOT_KEYS: [Key; 4] = [Key::F1, Key::F2, Key::F3, Key::F4];
 
 pub async fn init(spawner: &Spawner) {
     spawner.spawn(reboot_hotkey_task().unwrap());

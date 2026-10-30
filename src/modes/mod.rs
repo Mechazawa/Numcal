@@ -1,27 +1,27 @@
-use portable_atomic::{AtomicBool, AtomicU8, Ordering};
+use crate::modes::boot::Boot;
+use crate::modes::calculator::Calculator;
+use crate::modes::claude::Claude;
+use crate::modes::flash::FlashTest;
+use crate::modes::numpad::Numpad;
+use crate::tasks::{KEYPAD_CHANNEL, Key, key_pressed};
 use embassy_executor::Spawner;
 use embassy_sync::pubsub::WaitResult;
 use enum_dispatch::enum_dispatch;
-use crate::modes::boot::Boot;
-use crate::modes::numpad::Numpad;
-use crate::modes::calculator::Calculator;
-use crate::modes::flash::FlashTest;
-use crate::modes::claude::Claude;
-use crate::tasks::{key_pressed, Key, KEYPAD_CHANNEL};
+use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
-mod numpad;
 mod boot;
 mod calculator;
-mod flash;
 mod claude;
+mod flash;
+mod numpad;
 
 #[enum_dispatch]
 enum CurrentMode {
     Boot,
-    Numpad,      // F1
-    Calculator,  // F2
-    Claude,      // F3
-    FlashTest,       // F4
+    Numpad,     // F1
+    Calculator, // F2
+    Claude,     // F3
+    FlashTest,  // F4
 }
 
 static MODE_RUNNING: AtomicBool = AtomicBool::new(true);

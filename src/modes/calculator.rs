@@ -1,14 +1,14 @@
 use embassy_sync::pubsub::WaitResult;
-use embedded_graphics::mono_font::ascii::{FONT_10X20, FONT_6X10};
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
+use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 use portable_atomic::Ordering;
 
-use crate::utils::calc_number::CalcNumber;
 use crate::modes::Mode;
-use crate::tasks::{DisplayProxy, Key, KEYPAD_CHANNEL, HidEvent, HID_CHANNEL};
+use crate::tasks::{DisplayProxy, HID_CHANNEL, HidEvent, KEYPAD_CHANNEL, Key};
+use crate::utils::calc_number::CalcNumber;
 
 const RIGHT_EDGE: i32 = DisplayProxy::WIDTH - 5;
 
@@ -68,11 +68,7 @@ impl Calculator {
     }
 
     fn current_display_value(&self) -> &CalcNumber {
-        if self.inputting {
-            &self.input
-        } else {
-            &self.accumulator
-        }
+        if self.inputting { &self.input } else { &self.accumulator }
     }
 
     fn press_digit(&mut self, digit: u8) {
@@ -91,9 +87,7 @@ impl Calculator {
             self.input.digits.clear();
             self.input.digits.push(digit).ok();
         } else {
-            let total_chars = self.input.digits.len()
-                + usize::from(self.has_dot)
-                + usize::from(self.input.negative);
+            let total_chars = self.input.digits.len() + usize::from(self.has_dot) + usize::from(self.input.negative);
             if total_chars >= 13 {
                 return;
             }

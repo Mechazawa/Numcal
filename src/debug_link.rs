@@ -13,7 +13,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use heapless::String;
 
-use crate::tasks::{inject_key, DisplayAction, Key};
+use crate::tasks::{DisplayAction, Key, inject_key};
 
 const WIDTH: u32 = 132;
 const HEIGHT: u32 = 64;

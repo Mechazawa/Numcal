@@ -1,4 +1,4 @@
-use crate::tasks::{HidEvent, HID_CHANNEL};
+use crate::tasks::{HID_CHANNEL, HidEvent};
 
 pub const CTRL: u8 = 0x01;
 pub const SHIFT: u8 = 0x02;

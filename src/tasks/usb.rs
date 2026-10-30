@@ -1,7 +1,8 @@
+use crate::tasks::claude_link::ClaudeLink;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
-use embassy_rp::{bind_interrupts, Peri};
+use embassy_rp::{Peri, bind_interrupts};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
@@ -9,11 +10,10 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State as CdcState};
 use embassy_usb::class::hid::{HidReader, HidReaderWriter, HidWriter, ReportId, RequestHandler, State as HidState};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config as UsbConfig};
+use embassy_usb_logger::ReceiverHandler;
 use portable_atomic::{AtomicU8, Ordering};
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
-use embassy_usb_logger::ReceiverHandler;
-use crate::tasks::claude_link::ClaudeLink;
 
 /// Events that can be sent to the HID task
 #[derive(Clone, Copy, Debug)]

@@ -79,7 +79,11 @@ impl Sessions {
             _ => return,
         };
 
-        let index = self.0.iter().position(|session| session.id == id).unwrap_or_else(|| self.insert(id, now));
+        let index = self
+            .0
+            .iter()
+            .position(|session| session.id == id)
+            .unwrap_or_else(|| self.insert(id, now));
         let session = &mut self.0[index];
 
         if activity == Activity::Busy && !matches!(session.activity, Activity::Busy | Activity::Waiting) {
