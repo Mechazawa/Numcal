@@ -45,7 +45,6 @@ impl Mode for Boot {
         let mut display = DisplayProxy::new();
 
         for frame in 0..=FRAMES {
-            display.idle().await;
             display.clear(BinaryColor::Off).unwrap();
 
             Self::draw_icon(&mut display);
@@ -80,7 +79,7 @@ impl Mode for Boot {
                     BinaryColor::On,
                 )
                 .unwrap();
-            display.flush().unwrap();
+            display.flush();
 
             Timer::after_millis(100).await;
         }

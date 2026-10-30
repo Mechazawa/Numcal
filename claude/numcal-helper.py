@@ -8,7 +8,8 @@ wrong terminal. Without a match nothing is sent. Runs as a launchd agent, see nl
 
 The helper also relays the page 4 canvas for the `numcal` CLI over a unix socket. A client sends
 `send <line>` to forward a line to the device, or `wait-key <seconds>` to receive the next
-`key\t<name>` line from the device as `key <name>` (or `timeout`).
+`key\t<name>` line from the device as `key <name>` (or `timeout`). `dump` asks the device for its screen
+and replies `frame <hex>` (or `timeout`). Without a device, requests are answered with `error no device`.
 """
 
 import json
@@ -26,6 +27,8 @@ PORT = os.environ.get("NUMCAL_PORT", "/dev/cu.usbmodem123456783")
 SOCKET = Path(os.environ.get("NUMCAL_SOCKET", Path.home() / ".cache" / "numcal" / "helper.sock"))
 SESSIONS = Path(os.environ.get("NUMCAL_SESSIONS_DIR", Path.home() / ".claude" / "sessions"))
 HEARTBEAT_SECONDS = 2
+DUMP_TIMEOUT_SECONDS = 2
+FRAME_HEX_LENGTH = 1024
 STROKE = re.compile(r"^(?:(control|shift|control,shift):)?([A-Za-z0-9]+)$")
 
 
@@ -124,6 +127,7 @@ class Relay:
         self.listener.listen()
         self.buffers = {}
         self.deadlines = {}
+        self.dump_deadlines = {}
 
     def sockets(self):
         return [self.listener, *self.buffers]
@@ -137,6 +141,7 @@ class Relay:
     def drop(self, client):
         self.buffers.pop(client, None)
         self.deadlines.pop(client, None)
+        self.dump_deadlines.pop(client, None)
         client.close()
 
     def handle(self, ready, port_fd):
@@ -164,12 +169,20 @@ class Relay:
             self.request(ready, line.decode(errors="replace").rstrip("\r"), port_fd)
 
     def request(self, client, line, port_fd):
+        if port_fd is None and line.split(" ", 1)[0] in ("send", "dump"):
+            return self.reply(client, "error no device")
+
         match line.split(" ", 1):
             case ["send", text] if text.startswith("canvas\t"):
                 os.write(port_fd, f"{text}\n".encode())
                 self.reply(client, "ok")
             case ["wait-key", seconds] if re.fullmatch(r"\d+(\.\d+)?", seconds):
                 self.deadlines[client] = time.monotonic() + float(seconds)
+            case ["dump"]:
+                if not self.dump_deadlines:
+                    os.write(port_fd, b"dump\n")
+
+                self.dump_deadlines[client] = time.monotonic() + DUMP_TIMEOUT_SECONDS
             case _:
                 self.reply(client, "error bad request")
 
@@ -178,12 +191,18 @@ class Relay:
             del self.deadlines[client]
             self.reply(client, f"key {name}")
 
+    def deliver_frame(self, hex_data):
+        for client in list(self.dump_deadlines):
+            del self.dump_deadlines[client]
+            self.reply(client, f"frame {hex_data}")
+
     def expire(self):
         now = time.monotonic()
 
-        for client in [client for client, deadline in self.deadlines.items() if deadline <= now]:
-            del self.deadlines[client]
-            self.reply(client, "timeout")
+        for waiting in (self.deadlines, self.dump_deadlines):
+            for client in [client for client, deadline in waiting.items() if deadline <= now]:
+                del waiting[client]
+                self.reply(client, "timeout")
 
 
 def read_device(fd, buffer, relay):
@@ -203,6 +222,8 @@ def read_device(fd, buffer, relay):
                 log(f"jump {session}: {jump(session)}")
             case ["key", name]:
                 relay.deliver_key(name)
+            case ["frame", hex_data] if re.fullmatch(f"[0-9a-fA-F]{{{FRAME_HEX_LENGTH}}}", hex_data):
+                relay.deliver_frame(hex_data)
 
     return tail
 
@@ -225,19 +246,29 @@ def serve(fd, relay):
                 return
 
 
+def serve_without_device(relay, seconds):
+    end = time.monotonic() + seconds
+
+    while (remaining := end - time.monotonic()) > 0:
+        relay.expire()
+
+        for ready in select.select(relay.sockets(), [], [], min(remaining, 0.5))[0]:
+            relay.handle(ready, None)
+
+
 def main():
     relay = Relay(SOCKET)
 
     while True:
         if not os.path.exists(PORT):
-            time.sleep(HEARTBEAT_SECONDS)
+            serve_without_device(relay, HEARTBEAT_SECONDS)
             continue
 
         try:
             fd = open_port()
         except OSError as error:
             log(f"cannot open {PORT}: {error}")
-            time.sleep(HEARTBEAT_SECONDS)
+            serve_without_device(relay, HEARTBEAT_SECONDS)
             continue
 
         try:
@@ -248,7 +279,7 @@ def main():
         finally:
             os.close(fd)
 
-        time.sleep(HEARTBEAT_SECONDS)
+        serve_without_device(relay, HEARTBEAT_SECONDS)
 
 
 if __name__ == "__main__":

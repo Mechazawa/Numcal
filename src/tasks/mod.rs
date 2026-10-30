@@ -5,8 +5,6 @@ mod keypad;
 mod usb;
 mod watchdog;
 
-#[cfg(feature = "debug-link")]
-pub use display::DisplayAction;
 pub use display::DisplayProxy;
 pub use display::init as init_display;
 pub use hotkeys::init as init_hotkeys;

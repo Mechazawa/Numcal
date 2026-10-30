@@ -291,7 +291,7 @@ impl Claude {
         self.feedback = Some((feedback, Instant::now()));
     }
 
-    async fn intro(&self, display: &mut DisplayProxy<'_>) {
+    async fn intro(&self, display: &mut DisplayProxy) {
         let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
 
         let drop = [-30, -20, -10, 0, 3, 1, 1].map(|y| (y, 0, false, false));
@@ -303,7 +303,6 @@ impl Claude {
                 return;
             }
 
-            display.idle().await;
             display.clear(BinaryColor::Off).unwrap();
 
             Clawd {
@@ -319,7 +318,7 @@ impl Claude {
                 .draw(display)
                 .unwrap();
 
-            display.flush().unwrap();
+            display.flush();
 
             Timer::after_millis(70).await;
         }
@@ -427,7 +426,7 @@ impl Claude {
             .unwrap();
         }
 
-        display.flush().unwrap();
+        display.flush();
     }
 }
 
@@ -442,7 +441,6 @@ impl Mode for Claude {
         let mut keypad = KEYPAD_CHANNEL.subscriber().unwrap();
 
         while MODE_RUNNING.load(Ordering::Relaxed) {
-            display.idle().await;
             self.draw(&mut display, &claude_sessions());
 
             match select3(keypad.next_message(), CLAUDE_CHANGED.wait(), Timer::after(FRAME)).await {

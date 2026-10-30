@@ -118,5 +118,5 @@ fn show_text(text: &str) {
     .draw(&mut display)
     .unwrap();
 
-    display.flush().unwrap();
+    display.flush();
 }

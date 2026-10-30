@@ -34,6 +34,10 @@ SMALL_COLUMNS = 21
 TINY_ROW_HEIGHT = 6
 KEY_ROW_Y = 26
 BODY_TOP_WITH_TITLE = 12
+SCREEN_WIDTH = 128
+SCREEN_HEIGHT = 32
+FRAME_BYTES = SCREEN_WIDTH * SCREEN_HEIGHT // 8
+DUMP_WAIT_SECONDS = 5
 
 
 class Failure(Exception):
@@ -159,12 +163,25 @@ class Helper:
         self.connection.settimeout(timeout)
         self.connection.sendall(f"{line}\n".encode())
 
-        return self.replies.readline().rstrip("\n")
+        reply = self.replies.readline().rstrip("\n")
+
+        if reply == "error no device":
+            raise Failure("the numpad is not connected", 3)
+
+        return reply
 
     def send_frame(self, ops):
         for op in ops:
             if (reply := self.request(f"send canvas\t{op.strip()}")) != "ok":
                 raise Failure(f"helper refused {op!r}: {reply or 'connection closed'}")
+
+    def dump(self):
+        reply = self.request("dump", DUMP_WAIT_SECONDS)
+
+        if reply.startswith("frame "):
+            return bytes.fromhex(reply[6:])
+
+        raise Failure(*(("timeout waiting for the screen", 2) if reply == "timeout" else (reply or "connection closed",)))
 
     def wait_key(self, timeout, only):
         deadline = time.monotonic() + timeout
@@ -203,6 +220,32 @@ def command_wait_key(arguments):
         raise Failure("timeout", 2)
 
     print(key)
+
+
+def command_dump(arguments):
+    try:
+        from PIL import Image
+    except ImportError as error:
+        if arguments.png:
+            raise Failure("--png needs Pillow, which is not installed for this Python") from error
+
+    frame = Helper().dump()
+
+    if len(frame) != FRAME_BYTES:
+        raise Failure(f"device sent {len(frame)} bytes, expected {FRAME_BYTES}")
+
+    pixels = [
+        [bool(frame[row * 16 + column // 8] & (0x80 >> column % 8)) for column in range(SCREEN_WIDTH)]
+        for row in range(SCREEN_HEIGHT)
+    ]
+    print("\n".join("".join("#" if lit else "." for lit in row) for row in pixels))
+
+    if arguments.png:
+        image = Image.new("1", (SCREEN_WIDTH, SCREEN_HEIGHT))
+        image.putdata([lit for row in pixels for lit in row])
+        image.resize((SCREEN_WIDTH * arguments.scale, SCREEN_HEIGHT * arguments.scale), Image.Resampling.NEAREST).save(
+            arguments.png
+        )
 
 
 def command_ask(arguments):
@@ -253,6 +296,11 @@ def build_parser():
     ask.add_argument("--keys", required=True)
     ask.add_argument("--timeout", type=float, default=300)
     ask.set_defaults(run=command_ask)
+
+    dump = commands.add_parser("dump", help="print the screen as 32 lines of '#' and '.', optionally save a PNG")
+    dump.add_argument("--png", metavar="PATH")
+    dump.add_argument("--scale", type=int, choices=range(1, 17), metavar="1-16", default=4)
+    dump.set_defaults(run=command_dump)
 
     return parser
 

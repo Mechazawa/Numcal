@@ -223,7 +223,7 @@ impl Calculator {
                 .unwrap();
         }
 
-        display.flush().unwrap();
+        display.flush();
     }
 
     /// Map a display character to a USB HID keycode.

@@ -16,7 +16,6 @@ use portable_atomic::Ordering;
 
 use crate::modes::{MODE_RUNNING, Mode};
 use crate::tasks::{DisplayProxy, HID_CHANNEL, HOST_REQUESTS, HidEvent, KEYPAD_CHANNEL, Key, key_pressed};
-use crate::utils::framebuffer::Framebuffer;
 
 const MAX_OPS: usize = 40;
 
@@ -147,7 +146,7 @@ impl CanvasOp {
         Some(op)
     }
 
-    fn render(&self, frame: &mut Framebuffer) {
+    fn render(&self, frame: &mut DisplayProxy) {
         let _ = match self {
             Self::Clear => frame.clear(BinaryColor::Off),
             Self::Text { at, font, text } => Text::with_baseline(text, *at, font.style(), Baseline::Top)
@@ -229,7 +228,8 @@ impl Canvas {
 
             (canvas.owner.clone(), canvas.frame.clone())
         });
-        let mut frame = Framebuffer::new();
+
+        display.clear(BinaryColor::Off).unwrap();
 
         if ops.is_empty() {
             let small = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
@@ -240,17 +240,19 @@ impl Canvas {
                 owner.as_str()
             };
 
-            let _ = Text::with_baseline("Canvas", Point::new(2, 4), small, Baseline::Top).draw(&mut frame);
-            let _ = Text::with_baseline(waiting, Point::new(2, 18), tiny, Baseline::Top).draw(&mut frame);
+            Text::with_baseline("Canvas", Point::new(2, 4), small, Baseline::Top)
+                .draw(display)
+                .unwrap();
+            Text::with_baseline(waiting, Point::new(2, 18), tiny, Baseline::Top)
+                .draw(display)
+                .unwrap();
         }
 
         for op in &ops {
-            op.render(&mut frame);
+            op.render(display);
         }
 
-        display.clear(BinaryColor::Off).unwrap();
-        display.draw_iter(frame.lit_pixels()).unwrap();
-        display.flush().unwrap();
+        display.flush();
     }
 
     fn send_key(key: &str) {
@@ -268,7 +270,6 @@ impl Mode for Canvas {
         HID_CHANNEL.sender().send(HidEvent::Reset).await;
 
         while MODE_RUNNING.load(Ordering::Relaxed) {
-            display.idle().await;
             Self::draw(&mut display);
 
             let Either::First(WaitResult::Message(event)) = select(keypad.next_message(), CANVAS_CHANGED.wait()).await

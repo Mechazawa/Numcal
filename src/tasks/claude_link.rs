@@ -1,5 +1,6 @@
 use core::cell::RefCell;
 use embassy_futures::join::join;
+use embassy_futures::select::{Either, select};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::Driver;
 use embassy_sync::blocking_mutex::Mutex;
@@ -12,6 +13,7 @@ use heapless::{String, Vec};
 use portable_atomic::{AtomicU64, Ordering};
 
 use crate::modes::{CANVAS, CANVAS_CHANGED, show_canvas};
+use crate::tasks::DisplayProxy;
 use crate::utils::line_buffer::LineBuffer;
 
 pub const MAX_SESSIONS: usize = 16;
@@ -148,6 +150,9 @@ pub fn claude_sessions() -> Sessions {
 }
 
 /// Requests for the host helper, which delivers them to the terminal of a Claude Code session.
+/// Set when the host asks for `dump`; answered with `frame\t<hex>` from [`DisplayProxy::write_hex`].
+static DUMP_REQUESTED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
 pub static HOST_REQUESTS: Channel<CriticalSectionRawMutex, String<128>, 4> = Channel::new();
 
 /// Tick count of the last helper heartbeat; 0 before the first one.
@@ -174,6 +179,12 @@ pub async fn claude_link_task(class: CdcAcmClass<'static, Driver<'static, USB>>)
 
             while let Ok(length) = receiver.read_packet(&mut packet).await {
                 lines.feed(&packet[..length], |line| {
+                    if line == "dump" {
+                        DUMP_REQUESTED.signal(());
+
+                        return;
+                    }
+
                     if line == "helper" {
                         HELPER_SEEN.store(Instant::now().as_ticks().max(1), Ordering::Relaxed);
 
@@ -197,9 +208,19 @@ pub async fn claude_link_task(class: CdcAcmClass<'static, Driver<'static, USB>>)
 
     let outgoing = async {
         loop {
-            let request = HOST_REQUESTS.receive().await;
+            let reply: String<1040> = match select(HOST_REQUESTS.receive(), DUMP_REQUESTED.wait()).await {
+                Either::First(request) => request.chars().collect(),
+                Either::Second(()) => {
+                    let mut frame = String::new();
+                    let _ = frame.push_str("frame\t");
+                    let _ = DisplayProxy::shown().write_hex(&mut frame);
+                    let _ = frame.push('\n');
 
-            for chunk in request.as_bytes().chunks(64) {
+                    frame
+                }
+            };
+
+            for chunk in reply.as_bytes().chunks(64) {
                 if sender.write_packet(chunk).await.is_err() {
                     break;
                 }

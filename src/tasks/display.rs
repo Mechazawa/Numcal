@@ -1,14 +1,16 @@
+use core::cell::RefCell;
+use core::convert::Infallible;
+use core::fmt::{self, Write};
 use defmt_rtt as _;
 use display_interface::DisplayError;
 use embassy_executor::Spawner;
-use embassy_futures::yield_now;
 use embassy_rp::Peri;
 use embassy_rp::gpio::{Level, Output, Pin};
 use embassy_rp::peripherals::SPI1;
 use embassy_rp::spi::{ClkPin, Config as SpiConfig, MosiPin, Spi};
-use embassy_sync::blocking_mutex::raw::{RawMutex, ThreadModeRawMutex};
-use embassy_sync::channel::Channel;
-use embassy_sync::channel::{Sender, TrySendError};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::Timer;
 use embedded_graphics::Pixel;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -50,25 +52,15 @@ type DisplayType = Ssd1306<
     ssd1306::mode::BufferedGraphicsMode<DisplaySize>,
 >;
 
-const DRAW_BUFFER_SIZE: usize = 128;
-#[derive(Debug)]
-pub enum DisplayAction<C = BinaryColor>
-where
-    C: PixelColor,
-{
-    Clear(C),
-    FillSolid(Rectangle, C),
-    Draw(heapless::Vec<Pixel<C>, DRAW_BUFFER_SIZE>),
-    Flush,
-}
-
 static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
-/// The panel only shows this window of the 132x64 controller buffer.
-const VISIBLE_AREA: Rectangle = Rectangle::new(
-    Point::new(4, 32),
-    Size::new(DisplayProxy::WIDTH.unsigned_abs(), DisplayProxy::HEIGHT.unsigned_abs()),
-);
-pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 64> = Channel::new();
+/// Where the visible window starts in the 132x64 controller buffer.
+const VISIBLE_OFFSET: (u32, u32) = (4, 32);
+const ROW_BYTES: usize = 16;
+const ROWS: usize = 32;
+
+static NEXT_FRAME: Signal<CriticalSectionRawMutex, DisplayProxy> = Signal::new();
+static SHOWN_FRAME: Mutex<CriticalSectionRawMutex, RefCell<DisplayProxy>> =
+    Mutex::new(RefCell::new(DisplayProxy::new()));
 
 pub async fn init(
     spawner: &Spawner,
@@ -122,139 +114,118 @@ pub async fn init(
 
 #[embassy_executor::task]
 async fn display_task(display: &'static mut DisplayType) {
-    info!("Display rendering task started");
+    // Start from a known blank panel, so later frames only need to send what changed.
+    display.clear_buffer();
 
-    let receiver = DISPLAY_CHANNEL.receiver();
+    if let Err(error) = display.flush() {
+        error!("Display error: {error:?}");
+    }
+
+    let mut shown = DisplayProxy::new();
 
     loop {
-        let action = receiver.receive().await;
+        let frame = NEXT_FRAME.wait().await;
 
-        #[cfg(feature = "debug-link")]
-        crate::debug_link::mirror(&action);
+        frame
+            .changes(&shown)
+            .for_each(|(x, y, lit)| display.set_pixel(x + VISIBLE_OFFSET.0, y + VISIBLE_OFFSET.1, lit));
 
-        let err = match action {
-            DisplayAction::Clear(color) => (*display).clear(color),
-            DisplayAction::FillSolid(rect, color) => (*display).fill_solid(&rect, color),
-            DisplayAction::Draw(pixels) => (*display).draw_iter(pixels),
-            DisplayAction::Flush => (*display).flush(),
-        };
-
-        if let Err(e) = err {
-            error!("Display error: {e:?}");
+        // The driver sends only the rectangle around the pixels that changed.
+        if let Err(error) = display.flush() {
+            error!("Display error: {error:?}");
         }
+
+        SHOWN_FRAME.lock(|cell| cell.replace(frame.clone()));
+        shown = frame;
     }
 }
 
-/// Draws in visible-window coordinates: (0, 0) is the top-left pixel the panel shows, and anything
-/// outside [`DisplayProxy::WIDTH`] x [`DisplayProxy::HEIGHT`] is clipped.
-pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 64>
-where
-    T: RawMutex,
-    C: PixelColor,
-{
-    channel: Sender<'u, T, DisplayAction<C>, CN>,
-    /// Pixels from consecutive draws share chunks, so a frame of text costs a few channel slots
-    /// instead of one per glyph.
-    pending: heapless::Vec<Pixel<C>, DRAW_BUFFER_SIZE>,
-}
+/// A frame of the visible 128x32 window that modes draw into; (0, 0) is the top-left pixel the panel
+/// shows. [`DisplayProxy::flush`] publishes it, and the display shows the latest published frame.
+#[derive(Clone)]
+pub struct DisplayProxy([[u8; ROW_BYTES]; ROWS]);
 
-impl DisplayProxy<'_> {
+impl DisplayProxy {
     pub const WIDTH: i32 = 128;
     pub const HEIGHT: i32 = 32;
 
-    pub fn new() -> Self {
-        Self {
-            channel: DISPLAY_CHANNEL.sender(),
-            pending: heapless::Vec::new(),
-        }
+    pub const fn new() -> Self {
+        Self([[0; ROW_BYTES]; ROWS])
+    }
+
+    pub fn flush(&self) {
+        NEXT_FRAME.signal(self.clone());
+    }
+
+    /// The frame the display shows now.
+    pub fn shown() -> Self {
+        SHOWN_FRAME.lock(|cell| cell.borrow().clone())
+    }
+
+    fn index(point: Point) -> Option<(usize, usize, u8)> {
+        let x = usize::try_from(point.x).ok().filter(|&x| x < ROW_BYTES * 8)?;
+        let y = usize::try_from(point.y).ok().filter(|&y| y < ROWS)?;
+
+        Some((y, x / 8, 0x80 >> (x % 8)))
+    }
+
+    pub fn invert(&mut self, area: &Rectangle) {
+        area.points()
+            .filter_map(Self::index)
+            .for_each(|(row, byte, mask)| self.0[row][byte] ^= mask);
+    }
+
+    /// Pixels that differ from `previous`, as `(x, y, lit)`.
+    fn changes<'a>(&'a self, previous: &'a Self) -> impl Iterator<Item = (u32, u32, bool)> + 'a {
+        self.0
+            .iter()
+            .flatten()
+            .zip(previous.0.iter().flatten())
+            .zip(0u32..)
+            .filter(|((now, before), _)| now != before)
+            .flat_map(|((&now, &before), index)| {
+                (0..8u32)
+                    .filter(move |bit| (now ^ before) & (0x80 >> bit) != 0)
+                    .map(move |bit| (index % 16 * 8 + bit, index / 16, now & (0x80 >> bit) != 0))
+            })
+    }
+
+    /// The frame as hex, one row of 16 bytes after another, most significant bit leftmost.
+    pub fn write_hex(&self, out: &mut impl Write) -> fmt::Result {
+        self.0.iter().flatten().try_for_each(|byte| write!(out, "{byte:02x}"))
     }
 }
 
-impl<T, C, const CN: usize> DisplayProxy<'_, T, C, CN>
-where
-    T: RawMutex,
-    C: PixelColor,
-{
-    pub fn flush(&mut self) -> Result<(), TrySendError<DisplayAction<C>>> {
-        self.send_pending()?;
-
-        while self.channel.is_full() {}
-
-        self.channel.try_send(DisplayAction::Flush)
-    }
-
-    /// Waits until the display task has drawn everything queued, so a full frame fits in the channel.
-    pub async fn idle(&self) {
-        while !self.channel.is_empty() {
-            yield_now().await;
-        }
-    }
-
-    fn send_pending(&mut self) -> Result<(), TrySendError<DisplayAction<C>>> {
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-
-        self.channel
-            .try_send(DisplayAction::Draw(core::mem::take(&mut self.pending)))
+impl OriginDimensions for DisplayProxy {
+    fn size(&self) -> Size {
+        Size::new(Self::WIDTH.unsigned_abs(), Self::HEIGHT.unsigned_abs())
     }
 }
 
-impl<T, C, const CN: usize> Dimensions for DisplayProxy<'_, T, C, CN>
-where
-    C: PixelColor,
-    T: RawMutex,
-{
-    fn bounding_box(&self) -> Rectangle {
-        Rectangle::new(Point::zero(), VISIBLE_AREA.size)
-    }
-}
-
-impl<T, C, const CN: usize> DrawTarget for DisplayProxy<'_, T, C, CN>
-where
-    T: RawMutex,
-    C: PixelColor,
-{
-    type Color = C;
-    type Error = TrySendError<DisplayAction<C>>;
+impl DrawTarget for DisplayProxy {
+    type Color = BinaryColor;
+    type Error = Infallible;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
         I: IntoIterator<Item = Pixel<Self::Color>>,
     {
-        let offset = VISIBLE_AREA.top_left;
-
-        for pixel in pixels
+        pixels
             .into_iter()
-            .map(|Pixel(point, color)| Pixel(point + offset, color))
-        {
-            if !VISIBLE_AREA.contains(pixel.0) {
-                continue;
-            }
-
-            if self.pending.is_full() {
-                self.send_pending()?;
-            }
-
-            let _ = self.pending.push(pixel);
-        }
+            .filter_map(|Pixel(point, color)| Self::index(point).map(|index| (index, color)))
+            .for_each(|((row, byte, mask), color)| match color {
+                BinaryColor::On => self.0[row][byte] |= mask,
+                BinaryColor::Off => self.0[row][byte] &= !mask,
+            });
 
         Ok(())
     }
 
-    fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
-        let area = area.translate(VISIBLE_AREA.top_left).intersection(&VISIBLE_AREA);
-
-        if area.is_zero_sized() {
-            return Ok(());
-        }
-
-        self.send_pending()?;
-        self.channel.try_send(DisplayAction::FillSolid(area, color))
-    }
-
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
-        self.pending.clear();
-        self.channel.try_send(DisplayAction::Clear(color))
+        let fill = if color.is_on() { 0xFF } else { 0x00 };
+
+        self.0 = [[fill; ROW_BYTES]; ROWS];
+
+        Ok(())
     }
 }

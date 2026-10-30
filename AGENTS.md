@@ -2,7 +2,7 @@
 
 ## Display
 - The OLED panel shows only a 128x32 window (x 4..131, y 32..63) of the 132x64 SSD1306 buffer. `DisplayProxy` handles that offset: draw in `0..DisplayProxy::WIDTH` x `0..DisplayProxy::HEIGHT` and anything outside is clipped.
-- The display channel has 64 slots and `DisplayProxy` uses `try_send(...).unwrap()`, so an overflowing frame panics and hangs the device. Call `display.idle().await` before drawing a frame in an animation loop.
+- `DisplayProxy` is a 512-byte frame: draw a whole frame, then `flush()` publishes it and the latest published frame wins. The display task diffs it against the shown frame, so only the changed rectangle goes over SPI.
 
 ## USB
 - One USB device with two serial ports and a keyboard: `/dev/cu.usbmodem123456781` carries logs, `bootsel` and debug commands; `/dev/cu.usbmodem123456783` carries Claude Code traffic. Five interfaces need the embassy-usb `max-interface-count-8` feature; without it USB setup panics.
@@ -12,11 +12,11 @@
 - A panic reboots into BOOTSEL, and holding F1 while plugging in does too, so a broken build can always be reflashed without opening the case.
 
 ## Debugging without looking at the device
-- Build with `cargo run --release --features debug-link`, then use `scripts/numcal-debug.py`:
-  - `dump [--png out.png]` prints the visible screen as text from a mirror of the display buffer.
+- `numcal dump [--png out.png]` prints the shown frame in any build (needs the helper).
+- Build with `cargo run --release --features debug-link` to inject keys with `scripts/numcal-debug.py`:
   - `key 1 Sub Enter`, `down Lock`, `up Lock` inject key events (`down Lock`, `key F3`, `up Lock` switches to the Claude mode).
   - `send "<line>"` sends a raw serial line, such as a fake hook status.
-- Injected Claude-mode keys type into the focused window on the Mac, so do not inject them while a Claude Code terminal has focus.
+- Injected keys reach whatever listens: on page 3 the focused session's terminal, on page 4 any agent waiting in `numcal wait-key`. Check `ps` for a running `numcal wait-key` before injecting.
 
 ## Claude Code mode (Lock+F3)
 - `claude/numcal-hook.sh` is a Claude Code hook. It sends `session\tactivity\tproject\tdetail` lines to the Claude port; `src/tasks/claude_link.rs` parses them. It is installed in `~/.claude/settings.json` for SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Elicitation, Stop, StopFailure and Notification (`idle_prompt`).
@@ -27,7 +27,7 @@
 
 ## Canvas (Lock+F4)
 - Agents draw with the `numcal` CLI (`claude/numcal`, symlinked to `~/.local/bin/numcal`) and the `numcal-display` skill. The helper relays CLI requests from `~/.cache/numcal/helper.sock` to the Claude port as `canvas\t<op>` lines and hands `key\t<name>` events back to waiting `numcal wait-key`/`ask` calls.
-- Any canvas line switches the device to page 4. Ops render into a local framebuffer, so `invert` works and a frame fits in the display channel whatever its op count (max 40 ops per frame).
+- Any canvas line switches the device to page 4. Ops render straight into the frame (max 40 ops per frame).
 - Pages 3 and 4 never type over USB: page 3 sends keys to the session's terminal through the helper, page 4 sends key events to agents.
 
 ## Lint

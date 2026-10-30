@@ -39,7 +39,7 @@ impl Numpad {
             }
         }
 
-        display.flush().unwrap();
+        display.flush();
     }
 }
 
