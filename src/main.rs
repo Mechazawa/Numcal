@@ -3,6 +3,8 @@
 mod tasks;
 mod utils;
 mod modes;
+#[cfg(feature = "debug-link")]
+mod debug_link;
 
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
@@ -58,6 +60,9 @@ async fn main(spawner: Spawner) {
     init_hotkeys(&spawner).await;
     init_mode_handler(&spawner).await;
 
+    #[cfg(feature = "debug-link")]
+    debug_link::init(spawner);
+
     show_text("Ready");
 
     // Busy loop
@@ -76,7 +81,7 @@ fn show_text(text: &str) {
 
     display.clear(BinaryColor::Off).unwrap();
 
-    Text::with_baseline(text, Point::new(5, 38), text_style, Baseline::Middle)
+    Text::with_baseline(text, Point::new(2, DisplayProxy::HEIGHT / 2), text_style, Baseline::Middle)
         .draw(&mut display)
         .unwrap();
 

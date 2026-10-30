@@ -6,17 +6,15 @@ use crate::tasks::DisplayProxy;
 use portable_atomic::{Ordering};
 use crate::show_text;
 
-pub struct FlashMode{}
+pub struct FlashTest{}
 
-const SQUARE_SIZE: i32 = 8;
-
-impl FlashMode {
+impl FlashTest {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl Mode for FlashMode {
+impl Mode for FlashTest {
     async fn task(&mut self) {
         let mut display = DisplayProxy::new();
 
@@ -27,29 +25,6 @@ impl Mode for FlashMode {
         let mut inverted = false;
 
         while MODE_RUNNING.load(Ordering::Relaxed) {
-            // display.draw_iter(
-            //     display
-            //         .bounding_box()
-            //         .points()
-            //         .map(|point| Pixel(point, {
-            //             let mut color = inverted;
-            //
-            //             if (point.x / SQUARE_SIZE) % 2 == 1 {
-            //                 color = !color;
-            //             }
-            //
-            //             if (point.y / SQUARE_SIZE) % 2 == 1 {
-            //                 color = !color;
-            //             }
-            //
-            //             if color {
-            //                 BinaryColor::Off
-            //             } else {
-            //                 BinaryColor::On
-            //             }
-            //         }))
-            // ).unwrap();
-
             display.clear(if inverted {BinaryColor::On} else {BinaryColor::Off}).unwrap();
             display.flush().unwrap();
 

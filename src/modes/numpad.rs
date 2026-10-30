@@ -6,45 +6,35 @@ use embassy_sync::pubsub::WaitResult;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::geometry::{Point, Size};
 use embedded_graphics::pixelcolor::BinaryColor;
+use embedded_graphics::primitives::Rectangle;
 
-pub struct NumpadMode {
+pub struct Numpad {
 }
 
-impl NumpadMode {
+impl Numpad {
     pub fn new() -> Self {
         Self {
         }
     }
 
-    fn draw_leds(&self, display: &mut DisplayProxy) {
-        const LED_BOX_HEIGHT: u16 = 10;
-        const LED_BOX_WIDTH: u16 = 20;
+    fn draw_leds(display: &mut DisplayProxy) {
+        const LED_BOX_SIZE: Size = Size::new(20, 10);
         const LED_BOX_SPACING: i32 = 5;
-        const LED_BOX_THICKNESS: u32 = 2;
-        const LED_VALUES: [KeyboardLed; 3] = [KeyboardLed::NumLock, KeyboardLed::CapsLock, KeyboardLed::ScrollLock];
+        const LED_BOX_THICKNESS: i32 = 2;
+        const LED_BOX_TOP: i32 = DisplayProxy::HEIGHT - LED_BOX_SIZE.height.cast_signed() - 4;
+        const LED_VALUES: [KeyboardLed; 3] = [KeyboardLed::Num, KeyboardLed::Caps, KeyboardLed::Scroll];
 
         display.clear(BinaryColor::Off).unwrap();
 
-        for (i, led) in LED_VALUES.iter().enumerate() {
-            let offset_x = LED_BOX_SPACING + (i as i32 * (LED_BOX_WIDTH as i32 + LED_BOX_SPACING));
-            let y = 60 - LED_BOX_HEIGHT as i32;
+        let lefts = (LED_BOX_SPACING..).step_by((LED_BOX_SIZE.width.cast_signed() + LED_BOX_SPACING).unsigned_abs() as usize);
 
-            display.fill_solid(
-                &embedded_graphics::primitives::Rectangle::new(
-                    Point::new(offset_x, y),
-                    Size::new(LED_BOX_WIDTH as u32, LED_BOX_HEIGHT as u32),
-                ),
-                BinaryColor::On,
-            ).unwrap();
+        for (led, left) in LED_VALUES.into_iter().zip(lefts) {
+            let outline = Rectangle::new(Point::new(left, LED_BOX_TOP), LED_BOX_SIZE);
 
-            if !LED_STATE.test(*led) {
-                display.fill_solid(
-                    &embedded_graphics::primitives::Rectangle::new(
-                        Point::new(offset_x + LED_BOX_THICKNESS as i32, y + LED_BOX_THICKNESS as i32),
-                        Size::new(LED_BOX_WIDTH as u32 - LED_BOX_THICKNESS * 2, LED_BOX_HEIGHT as u32 - LED_BOX_THICKNESS * 2),
-                    ),
-                    BinaryColor::Off,
-                ).unwrap();
+            display.fill_solid(&outline, BinaryColor::On).unwrap();
+
+            if !LED_STATE.test(led) {
+                display.fill_solid(&outline.offset(-LED_BOX_THICKNESS), BinaryColor::Off).unwrap();
             }
         }
 
@@ -52,7 +42,7 @@ impl NumpadMode {
     }
 }
 
-impl Mode for NumpadMode {
+impl Mode for Numpad {
     async fn task(&mut self) {
         let mut keypad = KEYPAD_CHANNEL.subscriber().unwrap();
         let mut display = DisplayProxy::new();
@@ -61,7 +51,7 @@ impl Mode for NumpadMode {
         hid.send(HidEvent::Reset).await;
 
         // Draw LED indicators immediately on mode entry
-        self.draw_leds(&mut display);
+        Self::draw_leds(&mut display);
 
         while MODE_RUNNING.load(Ordering::Relaxed) {
             match select(keypad.next_message(), LED_CHANGED.wait()).await {
@@ -82,7 +72,7 @@ impl Mode for NumpadMode {
                 Either::Second(()) => {}
             }
 
-            self.draw_leds(&mut display);
+            Self::draw_leds(&mut display);
         }
     }
 }

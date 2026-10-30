@@ -1,5 +1,4 @@
 use embassy_sync::pubsub::WaitResult;
-use embassy_time::Timer;
 use embedded_graphics::mono_font::ascii::{FONT_10X20, FONT_6X10};
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -10,6 +9,8 @@ use portable_atomic::Ordering;
 use crate::utils::calc_number::CalcNumber;
 use crate::modes::Mode;
 use crate::tasks::{DisplayProxy, Key, KEYPAD_CHANNEL, HidEvent, HID_CHANNEL};
+
+const RIGHT_EDGE: i32 = DisplayProxy::WIDTH - 5;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Op {
@@ -30,7 +31,7 @@ impl Op {
     }
 }
 
-pub struct CalculatorMode {
+pub struct Calculator {
     /// Current number being entered
     input: CalcNumber,
     /// Whether user is actively typing digits
@@ -45,7 +46,7 @@ pub struct CalculatorMode {
     error: bool,
 }
 
-impl CalculatorMode {
+impl Calculator {
     pub fn new() -> Self {
         Self {
             input: CalcNumber::zero(),
@@ -202,7 +203,7 @@ impl CalculatorMode {
 
         // Main number display (or "Error")
         if self.error {
-            Text::with_text_style("Error", Point::new(127, 38), main_style, right_top)
+            Text::with_text_style("Error", Point::new(RIGHT_EDGE, 6), main_style, right_top)
                 .draw(display)
                 .unwrap();
         } else {
@@ -214,7 +215,7 @@ impl CalculatorMode {
                 text.push('.').ok();
             }
 
-            Text::with_text_style(text.as_str(), Point::new(127, 38), main_style, right_top)
+            Text::with_text_style(text.as_str(), Point::new(RIGHT_EDGE, 6), main_style, right_top)
                 .draw(display)
                 .unwrap();
         }
@@ -223,7 +224,7 @@ impl CalculatorMode {
         if let Some(op) = self.pending_op {
             let mut buf = [0u8; 1];
             let sym = op.symbol().encode_utf8(&mut buf);
-            Text::with_text_style(sym, Point::new(127, 58), small_style, right_top)
+            Text::with_text_style(sym, Point::new(RIGHT_EDGE, 26), small_style, right_top)
                 .draw(display)
                 .unwrap();
         }
@@ -304,7 +305,7 @@ impl CalculatorMode {
     }
 }
 
-impl Mode for CalculatorMode {
+impl Mode for Calculator {
     async fn task(&mut self) {
         let mut keypad = KEYPAD_CHANNEL.subscriber().unwrap();
         let mut display = DisplayProxy::new();

@@ -2,24 +2,26 @@ use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::pubsub::WaitResult;
 use enum_dispatch::enum_dispatch;
-use crate::modes::boot::BootMode;
-use crate::modes::numpad::NumpadMode;
-use crate::modes::calculator::CalculatorMode;
-use crate::modes::flash::FlashMode;
+use crate::modes::boot::Boot;
+use crate::modes::numpad::Numpad;
+use crate::modes::calculator::Calculator;
+use crate::modes::flash::FlashTest;
+use crate::modes::claude::Claude;
 use crate::tasks::{key_pressed, Key, KEYPAD_CHANNEL};
 
 mod numpad;
 mod boot;
 mod calculator;
 mod flash;
+mod claude;
 
 #[enum_dispatch]
 enum CurrentMode {
-    BootMode,
-    NumpadMode,      // F1
-    CalculatorMode,  // F2
-    // F3 (todo)
-    FlashMode,       // F4
+    Boot,
+    Numpad,      // F1
+    Calculator,  // F2
+    Claude,      // F3
+    FlashTest,       // F4
 }
 
 static MODE_RUNNING: AtomicBool = AtomicBool::new(true);
@@ -64,16 +66,17 @@ async fn mode_switcher_task() {
 #[embassy_executor::task]
 async fn mode_handler_task() {
     // this should be the task that runs the mode task
-    let mut mode: CurrentMode = BootMode::new().into();
+    let mut mode: CurrentMode = Boot::new().into();
 
     loop {
         MODE_RUNNING.store(true, Ordering::Relaxed);
         mode.task().await;
 
         mode = match TARGET_MODE.load(Ordering::Relaxed) {
-            0 => NumpadMode::new().into(),
-            1 => CalculatorMode::new().into(),
-            3 => FlashMode::new().into(),
+            0 => Numpad::new().into(),
+            1 => Calculator::new().into(),
+            2 => Claude::new().into(),
+            3 => FlashTest::new().into(),
             _ => mode,
         };
     }

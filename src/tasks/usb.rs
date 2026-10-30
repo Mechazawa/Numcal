@@ -12,6 +12,8 @@ use embassy_usb::{Builder, Config as UsbConfig};
 use portable_atomic::{AtomicU8, Ordering};
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+use embassy_usb_logger::ReceiverHandler;
+use crate::tasks::claude_link::ClaudeLink;
 
 /// Events that can be sent to the HID task
 #[derive(Clone, Copy, Debug)]
@@ -26,11 +28,9 @@ pub enum HidEvent {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
 pub enum KeyboardLed {
-    NumLock = 1 << 0,
-    CapsLock = 1 << 1,
-    ScrollLock = 1 << 2,
-    Compose = 1 << 3,
-    Kana = 1 << 4,
+    Num = 1 << 0,
+    Caps = 1 << 1,
+    Scroll = 1 << 2,
 }
 
 /// Channel for sending HID events to the HID task
@@ -142,7 +142,7 @@ async fn usb_device_task(mut usb: embassy_usb::UsbDevice<'static, Driver<'static
 
 #[embassy_executor::task]
 async fn logger_task(class: CdcAcmClass<'static, Driver<'static, USB>>) {
-    embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class).await;
+    embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class, ClaudeLink).await;
 }
 
 #[embassy_executor::task]

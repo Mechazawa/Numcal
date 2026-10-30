@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Talk to firmware built with `--features debug-link`.
+
+    numcal-debug.py dump [--full] [--png out.png]   print the screen as text, optionally save a PNG
+    numcal-debug.py key 1 Sub Enter                 tap keys (names as in the Key enum, digits as 0-9)
+    numcal-debug.py down Lock / up Lock             hold or release a key
+    numcal-debug.py send "<line>"                   send a raw line, such as a fake hook status
+"""
+
+import argparse
+import glob
+import os
+import re
+import select
+import sys
+import termios
+import time
+
+# The panel shows a 128x32 window of the 132x64 controller buffer.
+VISIBLE = (4, 32, 128, 32)
+
+
+def open_port():
+    ports = glob.glob("/dev/cu.usbmodem12345678*")
+    if not ports:
+        sys.exit("NumCal serial port not found")
+
+    fd = os.open(ports[0], os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    attributes = termios.tcgetattr(fd)
+    attributes[3] &= ~(termios.ICANON | termios.ECHO)
+    termios.tcsetattr(fd, termios.TCSANOW, attributes)
+
+    return fd
+
+
+def send(fd, line):
+    os.write(fd, (line + "\n").encode())
+    termios.tcdrain(fd)
+
+
+def read_dump(fd, timeout=3.0):
+    rows = {}
+    buffer = b""
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if ready:
+            buffer += os.read(fd, 4096)
+
+        if b"FB END" in buffer:
+            break
+
+    for row, data in re.findall(r"FB (\d\d) ([0-9a-f]+)", buffer.decode(errors="replace")):
+        rows[int(row)] = bytes.fromhex(data)
+
+    if len(rows) != 64:
+        sys.exit(f"incomplete dump: {len(rows)} of 64 rows")
+
+    return [[bool(rows[y][x // 8] & (0x80 >> (x % 8))) for x in range(132)] for y in range(64)]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=["dump", "key", "down", "up", "send"])
+    parser.add_argument("args", nargs="*")
+    parser.add_argument("--full", action="store_true", help="show the whole 132x64 buffer")
+    parser.add_argument("--png", help="also save the screen as a PNG, scaled 4x")
+    options = parser.parse_args()
+
+    fd = open_port()
+
+    if options.command == "dump":
+        time.sleep(0.2)
+        os.read(fd, 65536) if select.select([fd], [], [], 0)[0] else None
+        send(fd, "dump")
+        pixels = read_dump(fd)
+
+        left, top, width, height = (0, 0, 132, 64) if options.full else VISIBLE
+        crop = [row[left:left + width] for row in pixels[top:top + height]]
+        print("\n".join("".join("#" if pixel else "." for pixel in row) for row in crop))
+
+        if options.png:
+            from PIL import Image
+
+            image = Image.new("1", (width, height))
+            image.putdata([pixel for row in crop for pixel in row])
+            image.resize((width * 4, height * 4), Image.Resampling.NEAREST).save(options.png)
+    elif options.command == "send":
+        send(fd, " ".join(options.args))
+    elif options.command == "key":
+        for key in options.args:
+            send(fd, f"key {key}")
+            time.sleep(0.15)
+    else:
+        send(fd, f"{options.command} {options.args[0]}")
+
+    os.close(fd)
+
+
+if __name__ == "__main__":
+    main()

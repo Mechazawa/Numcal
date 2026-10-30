@@ -192,6 +192,15 @@ pub async fn keyboard_task(
     }
 }
 
+#[cfg(feature = "debug-link")]
+pub fn inject_key(key: Key, pressed: bool) {
+    if let Some((row, col)) = KEYMAP_INV[key as usize] {
+        STATE[row][col].store(pressed, Ordering::Relaxed);
+    }
+
+    KEYPAD_CHANNEL.immediate_publisher().publish_immediate(KeyEvent { key, pressed });
+}
+
 pub fn key_pressed(key: Key) -> bool {
     if key as usize >= KEYMAP.len() {
         false

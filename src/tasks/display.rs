@@ -7,6 +7,7 @@ use embassy_rp::spi::{ClkPin, Config as SpiConfig, MosiPin, Spi};
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::{RawMutex, ThreadModeRawMutex};
 use embassy_sync::channel::{Sender, TrySendError};
+use embassy_futures::yield_now;
 use embassy_time::Timer;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
@@ -62,7 +63,11 @@ pub enum DisplayAction<C = BinaryColor> where C: PixelColor {
 }
 
 static DISPLAY: StaticCell<DisplayType> = StaticCell::new();
-pub const DISPLAY_SIZE: Rectangle = Rectangle::new(Point::zero(), Size::new(132, 64));
+/// The panel only shows this window of the 132x64 controller buffer.
+const VISIBLE_AREA: Rectangle = Rectangle::new(
+    Point::new(4, 32),
+    Size::new(DisplayProxy::WIDTH.unsigned_abs(), DisplayProxy::HEIGHT.unsigned_abs()),
+);
 pub static DISPLAY_CHANNEL: Channel<ThreadModeRawMutex, DisplayAction, 64> = Channel::new();
 
 pub async fn init(
@@ -120,7 +125,12 @@ async fn display_task(display: &'static mut DisplayType) {
     let receiver = DISPLAY_CHANNEL.receiver();
 
     loop {
-       let err = match receiver.receive().await {
+       let action = receiver.receive().await;
+
+       #[cfg(feature = "debug-link")]
+       crate::debug_link::mirror(&action);
+
+       let err = match action {
             DisplayAction::Clear(color) => (*display).clear(color),
             DisplayAction::FillSolid(rect, color) => (*display).fill_solid(&rect, color),
             DisplayAction::Draw(pixels) => (*display).draw_iter(pixels),
@@ -133,37 +143,63 @@ async fn display_task(display: &'static mut DisplayType) {
     }
 }
 
+/// Draws in visible-window coordinates: (0, 0) is the top-left pixel the panel shows, and anything
+/// outside [`DisplayProxy::WIDTH`] x [`DisplayProxy::HEIGHT`] is clipped.
 pub struct DisplayProxy<'u, T = ThreadModeRawMutex, C = BinaryColor, const CN: usize = 64> where T: RawMutex, C: PixelColor {
     channel: Sender<'u, T, DisplayAction<C>, CN>,
+    /// Pixels from consecutive draws share chunks, so a frame of text costs a few channel slots
+    /// instead of one per glyph.
+    pending: heapless::Vec<Pixel<C>, DRAW_BUFFER_SIZE>,
 }
 
-impl DisplayProxy<'_, > {
+impl DisplayProxy<'_> {
+    pub const WIDTH: i32 = 128;
+    pub const HEIGHT: i32 = 32;
+
     pub fn new() -> Self {
         Self {
             channel: DISPLAY_CHANNEL.sender(),
+            pending: heapless::Vec::new(),
         }
     }
 }
 
-impl<T, C> DisplayProxy<'_, T, C> where T:  RawMutex, C: PixelColor {
+impl<T, C, const CN: usize> DisplayProxy<'_, T, C, CN> where T: RawMutex, C: PixelColor {
     pub fn flush(&mut self) -> Result<(), TrySendError<DisplayAction<C>>> {
+        self.send_pending()?;
+
         while self.channel.is_full() {}
 
         self.channel.try_send(DisplayAction::Flush)
     }
+
+    /// Waits until the display task has drawn everything queued, so a full frame fits in the channel.
+    pub async fn idle(&self) {
+        while !self.channel.is_empty() {
+            yield_now().await;
+        }
+    }
+
+    fn send_pending(&mut self) -> Result<(), TrySendError<DisplayAction<C>>> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+
+        self.channel.try_send(DisplayAction::Draw(core::mem::take(&mut self.pending)))
+    }
 }
 
-impl<T, C> Dimensions for DisplayProxy<'_, T, C>
+impl<T, C, const CN: usize> Dimensions for DisplayProxy<'_, T, C, CN>
 where
     C: PixelColor,
     T: RawMutex,
 {
     fn bounding_box(&self) -> Rectangle {
-        DISPLAY_SIZE
+        Rectangle::new(Point::zero(), VISIBLE_AREA.size)
     }
 }
 
-impl<T, C> DrawTarget for DisplayProxy<'_, T, C>
+impl<T, C, const CN: usize> DrawTarget for DisplayProxy<'_, T, C, CN>
 where
     T: RawMutex,
     C: PixelColor
@@ -175,29 +211,36 @@ where
     where
         I: IntoIterator<Item=Pixel<Self::Color>>
     {
-        let mut chunk: heapless::Vec<I::Item, DRAW_BUFFER_SIZE> = heapless::Vec::new();
+        let offset = VISIBLE_AREA.top_left;
 
-        for pixel in pixels {
-            let _ = chunk.push(pixel);
-
-            if (chunk.len() + 1) >= DRAW_BUFFER_SIZE {
-                self.channel.try_send(DisplayAction::Draw(chunk))?;
-                chunk = heapless::Vec::new();
+        for pixel in pixels.into_iter().map(|Pixel(point, color)| Pixel(point + offset, color)) {
+            if !VISIBLE_AREA.contains(pixel.0) {
+                continue;
             }
-        }
 
-        if !chunk.is_empty() {
-            self.channel.try_send(DisplayAction::Draw(chunk))?;
+            if self.pending.is_full() {
+                self.send_pending()?;
+            }
+
+            let _ = self.pending.push(pixel);
         }
 
         Ok(())
     }
 
     fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
-        self.channel.try_send(DisplayAction::FillSolid(*area, color))
+        let area = area.translate(VISIBLE_AREA.top_left).intersection(&VISIBLE_AREA);
+
+        if area.is_zero_sized() {
+            return Ok(());
+        }
+
+        self.send_pending()?;
+        self.channel.try_send(DisplayAction::FillSolid(area, color))
     }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        self.pending.clear();
         self.channel.try_send(DisplayAction::Clear(color))
     }
 }

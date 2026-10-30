@@ -49,6 +49,10 @@ rp2040-boot2 = "0.3"
 enum_dispatch = "0.3.13"
 display-interface = "0.5"
 
+[features]
+# Serial commands to dump the framebuffer and inject key presses during development
+debug-link = []
+
 [profile.release]
 debug = 2
 lto = true
