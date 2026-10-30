@@ -3,8 +3,8 @@
 # Without a connected NumCal it exits at once, and the serial write runs detached with a 1 second
 # limit, so Claude Code never waits on the device.
 
-port=$(ls /dev/cu.usbmodem12345678* 2>/dev/null | head -n 1)
-[ -n "$port" ] || exit 0
+port=/dev/cu.usbmodem123456783
+[ -e "$port" ] || exit 0
 
 line=$(jq -r '
     (.session_id // "" | .[0:8]) as $session

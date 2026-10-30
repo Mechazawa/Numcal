@@ -1,11 +1,17 @@
 use core::cell::RefCell;
-use embassy_rp::rom_data::reset_to_usb_boot;
+use embassy_futures::join::join;
+use embassy_rp::peripherals::USB;
+use embassy_rp::usb::Driver;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant};
-use embassy_usb_logger::ReceiverHandler;
+use embassy_usb::class::cdc_acm::CdcAcmClass;
 use heapless::{String, Vec};
+use portable_atomic::{AtomicU64, Ordering};
+
+use crate::utils::line_buffer::LineBuffer;
 
 pub const MAX_SESSIONS: usize = 16;
 
@@ -22,7 +28,7 @@ pub enum Activity {
 
 #[derive(Clone, Debug)]
 pub struct Session {
-    id: String<8>,
+    pub id: String<8>,
     pub activity: Activity,
     pub project: String<14>,
     pub detail: String<14>,
@@ -140,49 +146,57 @@ pub fn claude_sessions() -> Sessions {
     CLAUDE_SESSIONS.lock(|sessions| sessions.borrow().clone())
 }
 
-/// Collects serial bytes from the host into lines. `bootsel` reboots for flashing; any other line
-/// updates [`CLAUDE_SESSIONS`].
-pub struct ClaudeLink {
-    line: Mutex<CriticalSectionRawMutex, RefCell<Vec<u8, 96>>>,
+/// Requests for the host helper, which delivers them to the terminal of a Claude Code session.
+pub static HOST_REQUESTS: Channel<CriticalSectionRawMutex, String<128>, 4> = Channel::new();
+
+/// Tick count of the last helper heartbeat; 0 before the first one.
+static HELPER_SEEN: AtomicU64 = AtomicU64::new(0);
+const HELPER_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub fn helper_connected() -> bool {
+    let seen = HELPER_SEEN.load(Ordering::Relaxed);
+
+    seen != 0 && Instant::now() - Instant::from_ticks(seen) < HELPER_TIMEOUT
 }
 
-impl ReceiverHandler for ClaudeLink {
-    async fn handle_data(&self, data: &[u8]) {
-        self.line.lock(|line| {
-            let mut line = line.borrow_mut();
+/// Runs the Claude serial port: hook status lines and helper heartbeats come in, helper requests go out.
+#[embassy_executor::task]
+pub async fn claude_link_task(class: CdcAcmClass<'static, Driver<'static, USB>>) {
+    let (mut sender, mut receiver) = class.split();
 
-            for &byte in data {
-                match byte {
-                    b'\n' => {
-                        match core::str::from_utf8(&line).map(|text| text.trim_end_matches('\r')) {
-                            Ok("bootsel") => reset_to_usb_boot(0, 0),
-                            #[cfg(feature = "debug-link")]
-                            Ok(text) if let Some(command) = crate::debug_link::DebugCommand::parse(text) => {
-                                let _ = crate::debug_link::DEBUG_COMMANDS.try_send(command);
-                            }
-                            Ok(text) => {
-                                CLAUDE_SESSIONS.lock(|sessions| sessions.borrow_mut().apply(text));
-                                CLAUDE_CHANGED.signal(());
-                            }
-                            Err(_) => {}
-                        }
+    let incoming = async {
+        let mut packet = [0u8; 64];
+        let mut lines = LineBuffer::new();
 
-                        line.clear();
+        loop {
+            receiver.wait_connection().await;
+
+            while let Ok(length) = receiver.read_packet(&mut packet).await {
+                lines.feed(&packet[..length], |line| {
+                    if line == "helper" {
+                        HELPER_SEEN.store(Instant::now().as_ticks().max(1), Ordering::Relaxed);
+
+                        return;
                     }
-                    // An overlong line is garbage; drop it and resync on the next newline.
-                    _ => {
-                        if line.push(byte).is_err() {
-                            line.clear();
-                        }
-                    }
+
+                    CLAUDE_SESSIONS.lock(|sessions| sessions.borrow_mut().apply(line));
+                    CLAUDE_CHANGED.signal(());
+                });
+            }
+        }
+    };
+
+    let outgoing = async {
+        loop {
+            let request = HOST_REQUESTS.receive().await;
+
+            for chunk in request.as_bytes().chunks(64) {
+                if sender.write_packet(chunk).await.is_err() {
+                    break;
                 }
             }
-        });
-    }
-
-    fn new() -> Self {
-        Self {
-            line: Mutex::new(RefCell::new(Vec::new())),
         }
-    }
+    };
+
+    join(incoming, outgoing).await;
 }

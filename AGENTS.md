@@ -4,9 +4,12 @@
 - The OLED panel shows only a 128x32 window (x 4..131, y 32..63) of the 132x64 SSD1306 buffer. `DisplayProxy` handles that offset: draw in `0..DisplayProxy::WIDTH` x `0..DisplayProxy::HEIGHT` and anything outside is clipped.
 - The display channel has 64 slots and `DisplayProxy` uses `try_send(...).unwrap()`, so an overflowing frame panics and hangs the device. Call `display.idle().await` before drawing a frame in an animation loop.
 
+## USB
+- One USB device with two serial ports and a keyboard: `/dev/cu.usbmodem123456781` carries logs, `bootsel` and debug commands; `/dev/cu.usbmodem123456783` carries Claude Code traffic. Five interfaces need the embassy-usb `max-interface-count-8` feature; without it USB setup panics.
+
 ## Flashing
-- `cargo run --release` flashes without touching the device: `flash.sh` sends `bootsel` over the USB serial port and the firmware reboots into BOOTSEL. `picotool reboot` does not work with this firmware.
-- If the firmware hangs and drops off USB, the device needs a replug (or F1+F2+F3+F4 while it still runs).
+- `cargo run --release` flashes without touching the device: `flash.sh` sends `bootsel` on the log port and the firmware reboots into BOOTSEL. `picotool reboot` does not work with this firmware.
+- A panic reboots into BOOTSEL, and holding F1 while plugging in does too, so a broken build can always be reflashed without opening the case.
 
 ## Debugging without looking at the device
 - Build with `cargo run --release --features debug-link`, then use `scripts/numcal-debug.py`:
@@ -16,7 +19,10 @@
 - Injected Claude-mode keys type into the focused window on the Mac, so do not inject them while a Claude Code terminal has focus.
 
 ## Claude Code mode (Lock+F3)
-- `claude/numcal-hook.sh` is a Claude Code hook. It sends `session\tactivity\tproject\tdetail` lines to the device; `src/tasks/claude_link.rs` parses them. It is installed in `~/.claude/settings.json` for SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Elicitation, Stop, StopFailure and Notification (`idle_prompt`).
+- `claude/numcal-hook.sh` is a Claude Code hook. It sends `session\tactivity\tproject\tdetail` lines to the Claude port; `src/tasks/claude_link.rs` parses them.
+- `claude/numcal-helper.py` (launchd agent `claude/nl.mechazawa.numcal-helper.plist`) sends a `helper` heartbeat and turns the device's `keys`/`jump` requests into Ghostty AppleScript calls. It finds a session's terminal by the terminal's foreground `pid` and `~/.claude/sessions/<pid>.json`; tty paths and folders are reused, so they are not used for matching. Needs Ghostty 1.4+, whose `send key` takes camelCase names such as `digit1` and `arrowDown`.
+- Without a heartbeat in the last 5 seconds the mode types over USB into the focused window instead. Lock tapped alone requests a jump to the session's terminal.
+- `NUMCAL_SESSIONS_DIR` points the helper at fake session records, so a throwaway `cat` tab can stand in for a session during tests. It is installed in `~/.claude/settings.json` for SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Elicitation, Stop, StopFailure and Notification (`idle_prompt`).
 - `Stop` does not fire when the user interrupts a turn; the `idle_prompt` notification marks such a session idle later.
 
 ## Lint

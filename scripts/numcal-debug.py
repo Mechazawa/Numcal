@@ -8,7 +8,6 @@
 """
 
 import argparse
-import glob
 import os
 import re
 import select
@@ -16,16 +15,17 @@ import sys
 import termios
 import time
 
+PORT = "/dev/cu.usbmodem123456781"
+
 # The panel shows a 128x32 window of the 132x64 controller buffer.
 VISIBLE = (4, 32, 128, 32)
 
 
 def open_port():
-    ports = glob.glob("/dev/cu.usbmodem12345678*")
-    if not ports:
-        sys.exit("NumCal serial port not found")
+    if not os.path.exists(PORT):
+        sys.exit(f"NumCal log port {PORT} not found")
 
-    fd = os.open(ports[0], os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    fd = os.open(PORT, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     attributes = termios.tcgetattr(fd)
     attributes[3] &= ~(termios.ICANON | termios.ECHO)
     termios.tcsetattr(fd, termios.TCSANOW, attributes)

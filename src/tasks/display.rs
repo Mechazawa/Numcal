@@ -1,3 +1,4 @@
+use defmt_rtt as _;
 use display_interface::DisplayError;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
@@ -20,7 +21,6 @@ use ssd1306::command::Command;
 use ssd1306::prelude::*;
 use ssd1306::size::DisplaySize as DisplaySizeTrait;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[derive(Debug, Copy, Clone)]
 pub struct DisplaySize132x64;

@@ -1,8 +1,13 @@
-use crate::tasks::claude_link::ClaudeLink;
+use crate::tasks::claude_link::claude_link_task;
+use crate::utils::line_buffer::LineBuffer;
+use core::cell::RefCell;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::USB;
+use embassy_rp::rom_data::reset_to_usb_boot;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_rp::{Peri, bind_interrupts};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
@@ -44,10 +49,11 @@ bind_interrupts!(struct Irqs {
 });
 
 // Buffers
-static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
+static CONFIG_DESCRIPTOR: StaticCell<[u8; 512]> = StaticCell::new();
 static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
 static CDC_STATE: StaticCell<CdcState> = StaticCell::new();
+static CLAUDE_CDC_STATE: StaticCell<CdcState> = StaticCell::new();
 static HID_STATE: StaticCell<HidState> = StaticCell::new();
 static REQUEST_HANDLER_CELL: StaticCell<HidRequestHandler> = StaticCell::new();
 
@@ -108,14 +114,14 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
     let mut builder = Builder::new(
         Driver::new(usb_peripheral, Irqs),
         config,
-        CONFIG_DESCRIPTOR.init([0; 256]),
+        CONFIG_DESCRIPTOR.init([0; 512]),
         BOS_DESCRIPTOR.init([0; 256]),
         &mut [], // no msos descriptors
         CONTROL_BUF.init([0; 64]),
     );
 
-    // Create CDC-ACM class for logging
     let cdc = CdcAcmClass::new(&mut builder, CDC_STATE.init(CdcState::new()), 64);
+    let claude_cdc = CdcAcmClass::new(&mut builder, CLAUDE_CDC_STATE.init(CdcState::new()), 64);
 
     // Create HID class for keyboard
     let hid_config = embassy_usb::class::hid::Config {
@@ -131,6 +137,7 @@ pub async fn init(spawner: &Spawner, usb_peripheral: Peri<'static, USB>) {
     // Spawn device tasks
     spawner.spawn(usb_device_task(builder.build()).unwrap());
     spawner.spawn(logger_task(cdc).unwrap());
+    spawner.spawn(claude_link_task(claude_cdc).unwrap());
     spawner.spawn(hid_writer_task(writer).unwrap());
     spawner.spawn(hid_reader_task(reader).unwrap());
 }
@@ -140,9 +147,34 @@ async fn usb_device_task(mut usb: embassy_usb::UsbDevice<'static, Driver<'static
     usb.run().await;
 }
 
+/// Commands on the log port: `bootsel` reboots for flashing, and debug builds add their own.
+struct ConsoleCommands(Mutex<CriticalSectionRawMutex, RefCell<LineBuffer>>);
+
+impl ReceiverHandler for ConsoleCommands {
+    async fn handle_data(&self, data: &[u8]) {
+        self.0.lock(|lines| {
+            lines.borrow_mut().feed(data, |line| match line {
+                "bootsel" => reset_to_usb_boot(0, 0),
+                #[cfg(feature = "debug-link")]
+                _ => {
+                    if let Some(command) = crate::debug_link::DebugCommand::parse(line) {
+                        let _ = crate::debug_link::DEBUG_COMMANDS.try_send(command);
+                    }
+                }
+                #[cfg(not(feature = "debug-link"))]
+                _ => {}
+            });
+        });
+    }
+
+    fn new() -> Self {
+        Self(Mutex::new(RefCell::new(LineBuffer::new())))
+    }
+}
+
 #[embassy_executor::task]
 async fn logger_task(class: CdcAcmClass<'static, Driver<'static, USB>>) {
-    embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class, ClaudeLink).await;
+    embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class, ConsoleCommands).await;
 }
 
 #[embassy_executor::task]

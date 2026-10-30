@@ -8,8 +8,11 @@ mod utils;
 
 use crate::modes::init_mode_handler;
 use crate::tasks::{DisplayProxy, init_hotkeys, init_keypad, init_watchdog};
+use core::panic::PanicInfo;
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
+use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::rom_data::reset_to_usb_boot;
 use embassy_time::Timer;
 use embedded_graphics::Drawable;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
@@ -20,9 +23,31 @@ use embedded_graphics::text::{Baseline, Text};
 use tasks::init_display;
 use tasks::init_usb;
 
+/// Reboots into BOOTSEL, so a firmware that crashes during startup can still be flashed over USB.
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    reset_to_usb_boot(0, 0);
+
+    loop {
+        cortex_m::asm::wfi();
+    }
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let peripherals = embassy_rp::init(Config::default());
+    let mut peripherals = embassy_rp::init(Config::default());
+
+    // Holding F1 while plugging in reboots into BOOTSEL before any other code can crash or hang.
+    {
+        let _f1_row = Output::new(peripherals.PIN_9.reborrow(), Level::Low);
+        let f1_column = Input::new(peripherals.PIN_26.reborrow(), Pull::Up);
+
+        Timer::after_micros(50).await;
+
+        if f1_column.is_low() {
+            reset_to_usb_boot(0, 0);
+        }
+    }
 
     init_watchdog(&spawner, peripherals.WATCHDOG).await;
 

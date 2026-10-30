@@ -8,13 +8,13 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
-use heapless::String;
+use heapless::{String, Vec};
 use portable_atomic::Ordering;
 
 use crate::modes::{MODE_RUNNING, Mode};
 use crate::tasks::{
-    Activity, CLAUDE_CHANGED, DisplayProxy, HID_CHANNEL, HidEvent, KEYPAD_CHANNEL, Key, Sessions, claude_sessions,
-    key_pressed,
+    Activity, CLAUDE_CHANGED, DisplayProxy, HID_CHANNEL, HOST_REQUESTS, HidEvent, KEYPAD_CHANNEL, Key, Sessions,
+    claude_sessions, helper_connected, key_pressed,
 };
 use crate::utils::keystroke::{CTRL, Keystroke, SHIFT};
 
@@ -142,10 +142,10 @@ fn draw_spinner(display: &mut DisplayProxy, center: Point, tick: u32) {
     }
 }
 
-const CTRL_B: Keystroke = Keystroke::with(CTRL, 0x05);
-const CTRL_O: Keystroke = Keystroke::with(CTRL, 0x12);
-const CTRL_T: Keystroke = Keystroke::with(CTRL, 0x17);
-const SHIFT_TAB: Keystroke = Keystroke::with(SHIFT, 0x2B);
+const CTRL_B: Keystroke = Keystroke::with(CTRL, 0x05, "b");
+const CTRL_O: Keystroke = Keystroke::with(CTRL, 0x12, "o");
+const CTRL_T: Keystroke = Keystroke::with(CTRL, 0x17, "t");
+const SHIFT_TAB: Keystroke = Keystroke::with(SHIFT, 0x2B, "tab");
 
 enum Macro {
     Keys(&'static [Keystroke]),
@@ -186,19 +186,35 @@ impl Binding {
         Some(Self { label, action })
     }
 
-    async fn send(&self) {
+    fn strokes(&self) -> Vec<Keystroke, 16> {
         match self.action {
-            Macro::Keys(strokes) => {
-                for stroke in strokes {
-                    stroke.send().await;
-                }
-            }
-            Macro::Text(text) => {
-                for stroke in text.chars().filter_map(Keystroke::from_char) {
-                    stroke.send().await;
-                }
-            }
+            Macro::Keys(strokes) => strokes.iter().copied().collect(),
+            Macro::Text(text) => text.chars().filter_map(Keystroke::from_char).collect(),
         }
+    }
+
+    async fn type_over_usb(&self) {
+        for stroke in self.strokes() {
+            stroke.send().await;
+        }
+    }
+
+    /// A `keys` request for the host helper, which sends the strokes to the session's terminal.
+    fn host_request(&self, session: &str) -> String<128> {
+        let mut request = String::new();
+        let _ = write!(request, "keys\t{session}\t");
+
+        for (index, stroke) in self.strokes().into_iter().enumerate() {
+            if index > 0 {
+                let _ = request.push(' ');
+            }
+
+            let _ = stroke.write_ghostty(&mut request);
+        }
+
+        let _ = request.push('\n');
+
+        request
     }
 }
 
@@ -218,6 +234,8 @@ fn format_elapsed(elapsed: Duration) -> String<8> {
 pub struct Claude {
     tick: u32,
     feedback: Option<(&'static str, Instant)>,
+    /// Whether a key was pressed while Lock was held, so releasing Lock is a mode chord, not a jump.
+    lock_chord: bool,
 }
 
 impl Claude {
@@ -225,7 +243,57 @@ impl Claude {
         Self {
             tick: 0,
             feedback: None,
+            lock_chord: false,
         }
+    }
+
+    /// Keys go to the focused session's terminal through the host helper when it runs, and are typed
+    /// into whichever window has focus otherwise.
+    async fn handle_key(&mut self, key: Key, pressed: bool) {
+        let target = claude_sessions()
+            .focus()
+            .map(|session| session.id.clone())
+            .filter(|_| helper_connected());
+
+        let feedback = match (key, pressed) {
+            (Key::Lock, true) => {
+                self.lock_chord = false;
+
+                return;
+            }
+            (Key::Lock, false) if !self.lock_chord => match target {
+                Some(session) => {
+                    let mut request = String::new();
+                    let _ = writeln!(request, "jump\t{session}");
+                    let _ = HOST_REQUESTS.try_send(request);
+
+                    "jump"
+                }
+                None => "no helper",
+            },
+            (_, true) if key_pressed(Key::Lock) => {
+                self.lock_chord = true;
+
+                return;
+            }
+            (key, true) => {
+                let Some(binding) = Binding::for_key(key) else {
+                    return;
+                };
+
+                match target {
+                    Some(session) => {
+                        let _ = HOST_REQUESTS.try_send(binding.host_request(&session));
+                    }
+                    None => binding.type_over_usb().await,
+                }
+
+                binding.label
+            }
+            _ => return,
+        };
+
+        self.feedback = Some((feedback, Instant::now()));
     }
 
     async fn intro(&self, display: &mut DisplayProxy<'_>) {
@@ -383,12 +451,7 @@ impl Mode for Claude {
             self.draw(&mut display, &claude_sessions());
 
             match select3(keypad.next_message(), CLAUDE_CHANGED.wait(), Timer::after(FRAME)).await {
-                Either3::First(WaitResult::Message(event)) if event.pressed && !key_pressed(Key::Lock) => {
-                    if let Some(binding) = Binding::for_key(event.key) {
-                        self.feedback = Some((binding.label, Instant::now()));
-                        binding.send().await;
-                    }
-                }
+                Either3::First(WaitResult::Message(event)) => self.handle_key(event.key, event.pressed).await,
                 Either3::Third(()) => self.tick = self.tick.wrapping_add(1),
                 _ => {}
             }
